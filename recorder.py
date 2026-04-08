@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import dxcam
 import pyautogui
 import threading
 from pynput import mouse
@@ -8,23 +7,47 @@ import time
 import os
 import subprocess
 import imageio_ffmpeg
+import platform
+
+# Importación condicional según el sistema operativo
+IS_WINDOWS = platform.system() == "Windows"
+
+if IS_WINDOWS:
+    try:
+        import dxcam
+    except ImportError:
+        dxcam = None
+else:
+    dxcam = None
+
+import mss
 
 
 class FocusRecorder:
     _camera_instance = None
 
     def __init__(self, config=None):
-        if FocusRecorder._camera_instance is None:
-            FocusRecorder._camera_instance = dxcam.create(output_color="BGR")
+        self.is_windows = IS_WINDOWS
+        
+        if self.is_windows and dxcam:
+            if FocusRecorder._camera_instance is None:
+                FocusRecorder._camera_instance = dxcam.create(output_color="BGR")
+            self.camera = FocusRecorder._camera_instance
+        else:
+            # En Linux no inicializamos aquí mss por seguridad de hilos
+            self.sct = None
+            self.monitor = None
 
-        self.camera = FocusRecorder._camera_instance
         self.config = config
         self.is_recording = False
         self.sw, self.sh = pyautogui.size()
         self.raw_data = []
         self.is_clicking = False
 
-        self.output_dir = "videos"
+        # Ruta absoluta relativa al script para evitar problemas de ejecución
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.output_dir = os.path.join(self.base_dir, "videos")
+        
         os.makedirs(self.output_dir, exist_ok=True)
         self.filename = self._get_next_filename()
 
@@ -56,16 +79,37 @@ class FocusRecorder:
         self._render_adaptive_video(callback_progress, export_mode)
 
     def _record_loop(self):
-        self.camera.start(target_fps=0)
-        while self.is_recording:
-            frame = self.camera.get_latest_frame()
-            if frame is None:
-                continue
-            mx, my = pyautogui.position()
-            ts = time.perf_counter() - self.start_time
-            self.raw_data.append((frame.copy(), mx, my, self.is_clicking, ts))
-            time.sleep(0.001)
-        self.camera.stop()
+        if self.is_windows and dxcam:
+            self.camera.start(target_fps=0)
+            while self.is_recording:
+                frame = self.camera.get_latest_frame()
+                if frame is None:
+                    continue
+                mx, my = pyautogui.position()
+                ts = time.perf_counter() - self.start_time
+                self.raw_data.append((frame.copy(), mx, my, self.is_clicking, ts))
+                time.sleep(0.001)
+            self.camera.stop()
+        else:
+            # Bucle para Linux usando mss
+            # IMPORTANTE: mss debe inicializarse DENTRO del hilo en Linux
+            with mss.mss() as sct:
+                # Usamos monitor 0 que representa la pantalla completa (toda la superficie)
+                # Esto coincide con los valores devueltos por pyautogui.size()
+                monitor = sct.monitors[0]
+                while self.is_recording:
+                    # Capturar pantalla
+                    sct_img = sct.grab(monitor)
+                    # Convertir a numpy array y quitar canal alpha
+                    frame = np.array(sct_img)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                    
+                    mx, my = pyautogui.position()
+                    ts = time.perf_counter() - self.start_time
+                    self.raw_data.append((frame, mx, my, self.is_clicking, ts))
+                    
+                    # Pequeño sleep para no saturar la CPU
+                    time.sleep(0.01)
 
     def _reencode_h264(self, input_path):
         """
@@ -95,6 +139,9 @@ class FocusRecorder:
         if os.path.exists(tmp_path):
             os.remove(input_path)
             os.rename(tmp_path, input_path)
+        elif os.path.getsize(input_path) > 0:
+            # Si falló el re-encode pero el original existe, lo dejamos
+            pass
 
     def _render_adaptive_video(self, callback_progress, export_mode):
         if not self.raw_data:
@@ -104,7 +151,7 @@ class FocusRecorder:
         target_fps = int(self.config['fps'])
         total_frames = int(total_duration * target_fps)
 
-        # mp4v como codec intermedio (siempre disponible en OpenCV/Windows)
+        # Codec para Linux/Windows (mp4v es seguro para OpenCV)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
         do_full   = export_mode in ("full", "both")
@@ -157,12 +204,14 @@ class FocusRecorder:
                 y1 = int(np.clip(cam_y - z_h // 2, 0, self.sh - z_h))
 
                 cropped = frame[y1:y1 + z_h, x1:x1 + z_w]
-                final = cv2.resize(cropped, (self.sw, self.sh), interpolation=cv2.INTER_LANCZOS4)
+                
+                if cropped.size > 0:
+                    final = cv2.resize(cropped, (self.sw, self.sh), interpolation=cv2.INTER_LANCZOS4)
 
-                vx = int(np.clip((mx - x1) * (self.sw / z_w), 0, self.sw - 1))
-                vy = int(np.clip((my - y1) * (self.sh / z_h), 0, self.sh - 1))
-                cv2.circle(final, (vx, vy), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
-                out_full.write(final)
+                    vx = int(np.clip((mx - x1) * (self.sw / z_w), 0, self.sw - 1))
+                    vy = int(np.clip((my - y1) * (self.sh / z_h), 0, self.sh - 1))
+                    cv2.circle(final, (vx, vy), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
+                    out_full.write(final)
 
             # ── TIKTOK 9:16 ──────────────────────────────────────────────
             if do_tiktok:
@@ -177,12 +226,14 @@ class FocusRecorder:
                 y1_tt = int(np.clip(tiktok_cam_y - z_h_tt // 2, 0, self.sh - z_h_tt))
 
                 cropped_tt = frame[y1_tt:y1_tt + z_h_tt, x1_tt:x1_tt + z_w_tt]
-                final_tt = cv2.resize(cropped_tt, (tiktok_w, tiktok_h), interpolation=cv2.INTER_LANCZOS4)
+                
+                if cropped_tt.size > 0 and tiktok_w > 0 and tiktok_h > 0:
+                    final_tt = cv2.resize(cropped_tt, (tiktok_w, tiktok_h), interpolation=cv2.INTER_LANCZOS4)
 
-                tx = int(np.clip((mx - x1_tt) * (tiktok_w / z_w_tt), 0, tiktok_w - 1))
-                ty = int(np.clip((my - y1_tt) * (tiktok_h / z_h_tt), 0, tiktok_h - 1))
-                cv2.circle(final_tt, (tx, ty), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
-                out_tiktok.write(final_tt)
+                    tx = int(np.clip((mx - x1_tt) * (tiktok_w / z_w_tt), 0, tiktok_w - 1))
+                    ty = int(np.clip((my - y1_tt) * (tiktok_h / z_h_tt), 0, tiktok_h - 1))
+                    cv2.circle(final_tt, (tx, ty), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
+                    out_tiktok.write(final_tt)
 
             if callback_progress and f_idx % 10 == 0:
                 pct = int((f_idx / total_frames) * 100 * render_weight)
