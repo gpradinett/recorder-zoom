@@ -18,3 +18,18 @@ __pycache__
 dist
 *.mp4
 *.webp
+
+# Scripts generados automáticamente
+run.sh
+run.bat
+
+# Briefcase build
+build/
+*.AppImage
+*.msi
+*.dmg
+*.deb
+*.rpm
+
+# Videos grabados
+videos/

@@ -8,6 +8,7 @@ import os
 import subprocess
 import imageio_ffmpeg
 import platform
+from pathlib import Path
 
 # Importación condicional según el sistema operativo
 IS_WINDOWS = platform.system() == "Windows"
@@ -44,12 +45,22 @@ class FocusRecorder:
         self.raw_data = []
         self.is_clicking = False
 
-        # Ruta absoluta relativa al script para evitar problemas de ejecución
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.output_dir = os.path.join(self.base_dir, "videos")
+        # Determinar la carpeta de salida según el sistema operativo
+        self.output_dir = self._get_video_directory()
         
         os.makedirs(self.output_dir, exist_ok=True)
         self.filename = self._get_next_filename()
+
+    def _get_video_directory(self):
+        """
+        Obtiene la carpeta de videos apropiada según la plataforma.
+        Guarda en ~/video-focussee para evitar problemas con localización
+        (ej: "Videos" vs "Vídeos" en español).
+        """
+        # Crear carpeta video-focussee directamente en el home del usuario
+        output_dir = Path.home() / "video-focussee"
+        
+        return str(output_dir)
 
     def _get_next_filename(self):
         idx = 1
