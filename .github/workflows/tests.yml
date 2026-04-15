@@ -47,7 +47,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[test]
 
-      - name: Run Tests with Coverage
+      - name: Run Tests with Coverage (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          sudo apt-get install -y xvfb
+          xvfb-run -a pytest --cov=focusrecorder --cov-report=xml --cov-report=term-missing
+
+      - name: Run Tests with Coverage (Windows/macOS)
+        if: runner.os != 'Linux'
         env:
           QT_QPA_PLATFORM: offscreen
         run: pytest --cov=focusrecorder --cov-report=xml --cov-report=term-missing

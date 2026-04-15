@@ -26,18 +26,15 @@ build/
 *.mp4
 *.webp
 
-# Scripts generados autom�ticamente
 run.sh
 run.bat
 
-# Briefcase build
 *.AppImage
 *.msi
 *.dmg
 *.deb
 *.rpm
 
-# Videos grabados
 videos/
 .briefcase/
 *.dist-info/
