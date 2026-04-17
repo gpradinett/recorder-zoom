@@ -22,6 +22,12 @@ from .config.constants import (
     UI_MAX_FPS,
 )
 from .utils.file_utils import open_folder_in_explorer
+from .utils.ui_conversions import (
+    recording_zoom_to_ui,
+    ui_zoom_to_recording,
+    recording_suavidad_to_ui,
+    ui_suavidad_to_recording,
+)
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
@@ -54,26 +60,6 @@ class FocusApp(QWidget):
         self.recording_service = RecordingService()
         self.recorder = None
         self.init_ui()
-
-    @staticmethod
-    def _recording_zoom_to_ui(zoom: float) -> int:
-        """Convert recording zoom (1.0-4.0) to UI spinbox value (10-40)."""
-        return int(zoom * 10)
-
-    @staticmethod
-    def _ui_zoom_to_recording(ui_value: int) -> float:
-        """Convert UI spinbox value (10-40) to recording zoom (1.0-4.0)."""
-        return ui_value / 10.0
-
-    @staticmethod
-    def _recording_suavidad_to_ui(suavidad: float) -> int:
-        """Convert recording suavidad (0.01-0.20) to UI slider value (1-20)."""
-        return int(suavidad * 100)
-
-    @staticmethod
-    def _ui_suavidad_to_recording(ui_value: int) -> float:
-        """Convert UI slider value (1-20) to recording suavidad (0.01-0.20)."""
-        return ui_value / 100.0
 
     def init_ui(self):
         self.setWindowTitle("Video Recorder Control Panel")
@@ -138,7 +124,7 @@ class FocusApp(QWidget):
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(UI_MIN_ZOOM, UI_MAX_ZOOM)
         self.zoom_spin.setValue(
-            self._recording_zoom_to_ui(self.app_config.user_preferences.recording.zoom)
+            recording_zoom_to_ui(self.app_config.user_preferences.recording.zoom)
         )
         self.zoom_spin.setPrefix("x ")
         self.zoom_spin.setSingleStep(2)
@@ -149,7 +135,7 @@ class FocusApp(QWidget):
         self.smooth_slider = QSlider(Qt.Orientation.Horizontal)
         self.smooth_slider.setRange(UI_MIN_SUAVIDAD, UI_MAX_SUAVIDAD)
         self.smooth_slider.setValue(
-            self._recording_suavidad_to_ui(self.app_config.user_preferences.recording.suavidad)
+            recording_suavidad_to_ui(self.app_config.user_preferences.recording.suavidad)
         )
         layout.addWidget(self.smooth_slider)
 
@@ -250,8 +236,8 @@ class FocusApp(QWidget):
 
             settings = with_recording_overrides(
                 self.app_config.user_preferences.recording,
-                zoom=self._ui_zoom_to_recording(self.zoom_spin.value()),
-                suavidad=self._ui_suavidad_to_recording(self.smooth_slider.value()),
+                zoom=ui_zoom_to_recording(self.zoom_spin.value()),
+                suavidad=ui_suavidad_to_recording(self.smooth_slider.value()),
                 fps=self.fps_spin.value(),
             )
             try:
@@ -316,8 +302,8 @@ class FocusApp(QWidget):
         
         updated_recording = with_recording_overrides(
             self.app_config.user_preferences.recording,
-            zoom=self._ui_zoom_to_recording(self.zoom_spin.value()),
-            suavidad=self._ui_suavidad_to_recording(self.smooth_slider.value()),
+            zoom=ui_zoom_to_recording(self.zoom_spin.value()),
+            suavidad=ui_suavidad_to_recording(self.smooth_slider.value()),
             fps=self.fps_spin.value(),
         )
         

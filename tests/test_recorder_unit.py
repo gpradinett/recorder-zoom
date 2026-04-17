@@ -34,20 +34,21 @@ def test_get_next_filename_increments_index(monkeypatch, tmp_path):
 
 
 def test_reencode_h264_replaces_input_file(monkeypatch, tmp_path):
-    rec = make_recorder(monkeypatch, tmp_path)
-
+    """Test that reencode_to_h264 from video_utils works correctly"""
+    import subprocess
+    import imageio_ffmpeg
+    
     source = tmp_path / "sample.mp4"
     source.write_bytes(b"old")
 
-    monkeypatch.setattr(recorder_module.imageio_ffmpeg, "get_ffmpeg_exe", lambda: "ffmpeg-bin")
-    monkeypatch.setattr(recorder_module, "subprocess", MagicMock())
-    monkeypatch.setattr(recorder_module, "os", MagicMock())
+    monkeypatch.setattr(imageio_ffmpeg, "get_ffmpeg_exe", lambda: "ffmpeg-bin")
+    mock_subprocess_run = MagicMock()
+    monkeypatch.setattr(subprocess, "run", mock_subprocess_run)
     
-    (tmp_path / "sample.mp4").write_bytes(b"old")
+    from focusrecorder.utils.video_utils import reencode_to_h264
+    reencode_to_h264(str(source))
 
-    rec._reencode_h264(str(source))
-
-    assert recorder_module.subprocess.run.called
+    assert mock_subprocess_run.called
 
 
 def test_render_adaptive_video_no_data_returns_without_progress(monkeypatch, tmp_path):

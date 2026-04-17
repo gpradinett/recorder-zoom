@@ -4,9 +4,6 @@ import threading
 from pynput import mouse
 import time
 import os
-import subprocess
-import imageio_ffmpeg
-import platform
 from pathlib import Path
 from dataclasses import replace
 
@@ -15,8 +12,11 @@ from .app.factories.capture_backend_factory import create_capture_backend
 from .application.errors import RecordingEnvironmentError
 from .domain.ports.capture_backend import CaptureBackend
 from .config.settings import RecordingSettings
+from .utils.file_utils import get_next_filename
+from .utils.video_utils import reencode_to_h264
 
 # Importación condicional según el sistema operativo
+import platform
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -36,7 +36,7 @@ class FocusRecorder:
         self.output_dir = self._get_video_directory()
         
         os.makedirs(self.output_dir, exist_ok=True)
-        self.filename = self._get_next_filename()
+        self.filename = get_next_filename(self.output_dir, prefix="video")
 
     def _get_video_directory(self):
         """
@@ -67,14 +67,6 @@ class FocusRecorder:
             return replace(settings, **updates)
 
         raise TypeError("config must be None, a dict, or RecordingSettings")
-
-    def _get_next_filename(self):
-        idx = 1
-        while True:
-            name = os.path.join(self.output_dir, f"video_{idx}.mp4")
-            if not os.path.exists(name):
-                return name
-            idx += 1
 
     def _on_click(self, x, y, button, pressed):
         self.is_clicking = pressed
@@ -136,38 +128,6 @@ class FocusRecorder:
         finally:
             self.capture_backend.stop()
 
-    def _reencode_h264(self, input_path):
-        """
-        Re-encodea el archivo a H.264 + AAC usando el FFmpeg
-        embebido en imageio-ffmpeg. Compatible con WhatsApp, Instagram, etc.
-        Reemplaza el archivo original al terminar.
-        """
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        tmp_path = input_path.replace(".mp4", "_h264.mp4")
-
-        cmd = [
-            ffmpeg_exe,
-            "-y",                      # sobreescribir sin preguntar
-            "-i", input_path,          # entrada
-            "-c:v", "libx264",         # codec H.264
-            "-preset", "fast",         # velocidad/calidad balance
-            "-crf", "18",              # calidad alta (0=lossless, 51=peor)
-            "-pix_fmt", "yuv420p",     # compatible con todos los reproductores
-            "-movflags", "+faststart",  # metadata al inicio (streaming/WA)
-            "-an",                     # sin audio (grabación de pantalla)
-            tmp_path
-        ]
-
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        # Reemplazar archivo intermedio con el H.264 final
-        if os.path.exists(tmp_path):  # pragma: no cover
-            os.remove(input_path)
-            os.rename(tmp_path, input_path)
-        elif os.path.getsize(input_path) > 0:
-            # Si falló el re-encode pero el original existe, lo dejamos
-            pass
-
     def _render_adaptive_video(self, callback_progress, export_mode):
         if not self.raw_data:
             return
@@ -177,7 +137,7 @@ class FocusRecorder:
         total_frames = int(total_duration * target_fps)
 
         # Codec para Linux/Windows (mp4v es seguro para OpenCV)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # type: ignore[attr-defined]
 
         do_full   = export_mode in ("full", "both")
         do_tiktok = export_mode in ("tiktok", "both")
@@ -236,7 +196,7 @@ class FocusRecorder:
                     vx = int(np.clip((mx - x1) * (self.sw / z_w), 0, self.sw - 1))
                     vy = int(np.clip((my - y1) * (self.sh / z_h), 0, self.sh - 1))
                     cv2.circle(final, (vx, vy), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
-                    out_full.write(final)
+                    out_full.write(final)  # type: ignore[union-attr]
 
             # ── TIKTOK 9:16 ──────────────────────────────────────────────
             if do_tiktok:
@@ -257,7 +217,7 @@ class FocusRecorder:
                     tx = int(np.clip((mx - x1_tt) * (tiktok_w / z_w_tt), 0, tiktok_w - 1))
                     ty = int(np.clip((my - y1_tt) * (tiktok_h / z_h_tt), 0, tiktok_h - 1))
                     cv2.circle(final_tt, (tx, ty), 8, color, -1 if clicking else 2, lineType=cv2.LINE_AA)
-                    out_tiktok.write(final_tt)
+                    out_tiktok.write(final_tt)  # type: ignore[union-attr]
 
             if callback_progress and f_idx % 10 == 0:
                 pct = int((f_idx / total_frames) * 100 * render_weight)
@@ -276,7 +236,7 @@ class FocusRecorder:
             files_to_encode.append(tiktok_path)
 
         for i, path in enumerate(files_to_encode):
-            self._reencode_h264(path)
+            reencode_to_h264(path)
             if callback_progress:
                 base = int(100 * render_weight)
                 pct = base + int((i + 1) / len(files_to_encode) * (100 - base))

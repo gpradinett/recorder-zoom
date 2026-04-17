@@ -5,6 +5,31 @@ import subprocess
 from pathlib import Path
 
 
+def get_next_filename(output_dir: Path | str, prefix: str = "video", extension: str = ".mp4") -> str:
+    """
+    Genera el siguiente nombre de archivo disponible en un directorio.
+    
+    Args:
+        output_dir: Directorio donde se buscará el archivo
+        prefix: Prefijo del nombre de archivo (default: "video")
+        extension: Extensión del archivo (default: ".mp4")
+    
+    Returns:
+        Ruta completa al siguiente archivo disponible (e.g., "output_dir/video_1.mp4")
+    
+    Examples:
+        >>> get_next_filename("/videos", "recording", ".mp4")
+        "/videos/recording_1.mp4"
+    """
+    output_dir = Path(output_dir)
+    idx = 1
+    while True:
+        name = output_dir / f"{prefix}_{idx}{extension}"
+        if not name.exists():
+            return str(name)
+        idx += 1
+
+
 def open_folder_in_explorer(folder_path: Path | str) -> None:
     """
     Abre la carpeta en el explorador de archivos del sistema operativo.

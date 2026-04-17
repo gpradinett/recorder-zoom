@@ -1,7 +1,6 @@
 """User preferences persistence using JSON files."""
 
 import json
-import platform
 from pathlib import Path
 from typing import Any
 
@@ -13,35 +12,17 @@ from .constants import (
     DEFAULT_EXPORT_MODE,
     DEFAULT_OUTPUT_FOLDER_NAME,
 )
-
-
-def _get_config_directory() -> Path:
-    """Get platform-specific user configuration directory."""
-    system = platform.system()
-    
-    if system == "Windows":
-        # Windows: %APPDATA%\FocusRecorder
-        base = Path.home() / "AppData" / "Roaming"
-    elif system == "Darwin":
-        # macOS: ~/Library/Application Support/FocusRecorder
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        # Linux: ~/.config/FocusRecorder
-        base = Path.home() / ".config"
-    
-    config_dir = base / "FocusRecorder"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir
+from ..utils.system_paths import get_config_directory
 
 
 def get_config_file_path() -> Path:
     """Get the full path to the configuration file."""
-    return _get_config_directory() / CONFIG_FILENAME
+    return get_config_directory() / CONFIG_FILENAME
 
 
 def get_example_config_file_path() -> Path:
     """Get the full path to the example configuration file."""
-    return _get_config_directory() / f"{CONFIG_FILENAME}.example"
+    return get_config_directory() / f"{CONFIG_FILENAME}.example"
 
 
 def _create_example_config_file() -> None:

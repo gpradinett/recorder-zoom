@@ -8,18 +8,13 @@ from .constants import (
     DEFAULT_SUAVIDAD,
     DEFAULT_FPS,
     DEFAULT_EXPORT_MODE,
-    DEFAULT_OUTPUT_FOLDER_NAME,
 )
+from ..utils.system_paths import get_default_output_dir
 
 
 @dataclass(frozen=True)
 class AppConfig:
     user_preferences: UserPreferences
-
-
-def get_default_output_dir() -> Path:
-    """Get the default output directory."""
-    return Path.home() / "Desktop" / DEFAULT_OUTPUT_FOLDER_NAME
 
 
 def get_default_recording_settings() -> RecordingSettings:

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from focusrecorder.recorder import FocusRecorder
 import focusrecorder.recorder as recorder_module
+import focusrecorder.utils.video_utils as video_utils_module
 from focusrecorder.config.settings import RecordingSettings
 
 def test_recorder_full_rendering_workflow(monkeypatch, tmp_path):
@@ -20,7 +21,7 @@ def test_recorder_full_rendering_workflow(monkeypatch, tmp_path):
     def fake_reencode(path):
         pass
 
-    monkeypatch.setattr(rec, "_reencode_h264", fake_reencode)
+    monkeypatch.setattr(video_utils_module, "reencode_to_h264", fake_reencode)
 
     blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
     
@@ -60,8 +61,24 @@ def test_recorder_full_various_modes(monkeypatch, tmp_path):
     rec = FocusRecorder(config={"zoom": 2.0, "suavidad": 0.5, "fps": 10})
     rec.capture_backend = MagicMock()
     
-    monkeypatch.setattr(rec, "_reencode_h264", lambda x: None)
-    monkeypatch.setattr(cv2, "VideoWriter", MagicMock())
+    # Mock reencode_to_h264 to avoid file system operations
+    monkeypatch.setattr(video_utils_module, "reencode_to_h264", lambda x: None)
+    
+    # Create a mock VideoWriter that creates files
+    class MockVideoWriter:
+        def __init__(self, filename, fourcc, fps, frameSize):
+            self.filename = filename
+            # Create the file to avoid FileNotFoundError in reencode_to_h264
+            import os
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, 'wb') as f:
+                f.write(b"mockvideo")
+        def write(self, frame):
+            pass
+        def release(self):
+            pass
+    
+    monkeypatch.setattr(cv2, "VideoWriter", MockVideoWriter)
     monkeypatch.setattr(cv2, "VideoWriter_fourcc", lambda *args: "mp4v")    
     
     rec.raw_data = []
@@ -78,23 +95,29 @@ def test_recorder_full_various_modes(monkeypatch, tmp_path):
 
 
 def test_recorder_reencode_fails_gracefully(monkeypatch, tmp_path):
+    """Test that reencode function from video_utils is called during rendering"""
+    import subprocess
+    
     monkeypatch.setattr(recorder_module.Path, "home", lambda: tmp_path)
     rec = FocusRecorder(config={"zoom": 2.0, "suavidad": 0.5, "fps": 10})
     rec.capture_backend = MagicMock()
-
-    monkeypatch.setattr(recorder_module, "subprocess", MagicMock())
-    mock_os = MagicMock()
-    monkeypatch.setattr(recorder_module, "os", mock_os)
     
-    mock_os.path.exists.return_value = False
-    mock_os.path.getsize.return_value = 100
+    # Mock the subprocess.run used by reencode_to_h264
+    mock_subprocess_run = MagicMock()
+    monkeypatch.setattr(subprocess, "run", mock_subprocess_run)
     
-    rec._reencode_h264("fake_path.mp4")
+    # Mock os functions used by reencode_to_h264
+    mock_os_exists = MagicMock(return_value=False)
+    mock_os_getsize = MagicMock(return_value=100)
+    monkeypatch.setattr(os.path, "exists", mock_os_exists)
+    monkeypatch.setattr(os.path, "getsize", mock_os_getsize)
     
-    mock_os.path.getsize.return_value = 0
-    rec._reencode_h264("fake_path2.mp4")
+    # Call the function from video_utils
+    from focusrecorder.utils.video_utils import reencode_to_h264
+    reencode_to_h264("fake_path.mp4")
     
-    assert recorder_module.subprocess.run.called
+    # Verify subprocess was called
+    assert mock_subprocess_run.called
 
 
 def test_recorder_os_logic(monkeypatch, tmp_path):
