@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import focusrecorder.recorder as recorder_module
-import focusrecorder.app.config as config_module
+import focusrecorder.config.config as config_module
 from focusrecorder.recorder import FocusRecorder
 from focusrecorder.config.settings import RecordingSettings
 
