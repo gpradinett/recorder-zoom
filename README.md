@@ -23,16 +23,44 @@ El proyecto ha sido refactorizado siguiendo principios de **Arquitectura Hexagon
 ## 🛠️ Requisitos e Instalación
 
 ### Requisitos Técnicos
-- **Python 3.11**: Requerido para compatibilidad con backends de captura.
-- **FFmpeg**: Necesario para la re-codificación H.264 (instalado automáticamente vía `imageio-ffmpeg`).
+- **Python 3.11**: Requerido para garantizar la compatibilidad binaria con backends de captura y librerías de video.
+- **FFmpeg**: Necesario para la re-codificación H.264 (instalado automáticamente vía `imageio-ffmpeg` en la mayoría de los casos).
+
+### Dependencias del Sistema
+**Ubuntu/Debian**:
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip ffmpeg libgl1 libglib2.0-0 libegl1 xvfb
+```
+
+**macOS**:
+```bash
+brew install python@3.11 ffmpeg
+```
+
+**Windows**:
+- Descargar e instalar **Python 3.11** desde [python.org](https://www.python.org/downloads/).
+- FFmpeg se gestiona automáticamente.
 
 ### Instalación Rápida
-Ejecuta el script correspondiente a tu sistema:
+Ejecuta el script correspondiente a tu sistema operativo para configurar todo automáticamente:
 
-- **Windows**: `setup.bat`
-- **Linux/macOS**: `./setup.sh`
+- **Linux / macOS**:
+  ```bash
+  chmod +x setup.sh
+  ./setup.sh
+  ```
+- **Windows**:
+  ```cmd
+  setup.bat
+  ```
 
-Este proceso configurará un entorno virtual (`venv`), instalará las dependencias y validará la instalación mediante tests automáticos.
+Estos scripts realizan una instalación completa:
+- ✓ Verifican que Python 3.11 esté instalado.
+- ✓ Crean el entorno virtual (`venv`).
+- ✓ Instalan todas las dependencias necesarias.
+- ✓ Ejecutan los tests para asegurar que todo funciona.
+- ✓ Crean scripts de ejecución rápida (`run.sh` / `run.bat`).
 
 ### Instalación Manual (Desarrolladores)
 ```bash
@@ -46,7 +74,11 @@ pip install -e ".[test]"      # Para ejecutar la suite de pruebas
 
 ## 🚀 Uso de la Aplicación
 
-Inicia la interfaz gráfica con el comando:
+### Opción 1: Scripts de acceso rápido (Recomendado)
+- **Linux / macOS**: `./run.sh`
+- **Windows**: `run.bat`
+
+### Opción 2: Comando manual
 ```bash
 python -m focusrecorder
 ```
@@ -58,7 +90,6 @@ python -m focusrecorder
 4. **Salida**: Los videos se guardan por defecto en tu carpeta `Escritorio/videos`.
 
 ## 📁 Estructura del Código
-
 ```
 src/focusrecorder/
 ├── app/                  # Fábricas y Configuración Central
@@ -84,8 +115,22 @@ docker build -t recorder-zoom .
 docker run --rm recorder-zoom pytest
 ```
 
-## 📄 Licencia
+## 📦 Distribución (Crear Ejecutable)
+Para crear instaladores nativos multiplataforma, activa el entorno virtual y utiliza `briefcase`:
 
+```bash
+pip install briefcase
+briefcase create
+briefcase build
+briefcase package
+```
+
+Esto genera:
+- **Windows**: Instalador `.msi`
+- **Linux**: AppImage ejecutable
+- **macOS**: Bundle `.app`
+
+## 📄 Licencia
 Este proyecto está bajo la **Licencia MIT**. Consulta el archivo [LICENSE](LICENSE) para obtener más detalles.
 
 Copyright (c) 2026 **BarretoPalacios**
