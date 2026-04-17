@@ -23,7 +23,7 @@ Ejecuta el script correspondiente a tu sistema operativo. Este se encargará de 
 > **¿Qué hacen estos scripts?**
 > Realizan una instalación de nivel profesional:
 > 1.  **Verifican Python 3.11**: Confirman que la versión correcta de Python esté disponible.
-> 2.  **Crean un Entorno Virtual**: Aíslan las dependencias en una carpeta `.venv311`.
+> 2.  **Crean un Entorno Virtual**: Aíslan las dependencias en una carpeta `venv`.
 > 3.  **Instalan Dependencias**: Instalan `PyQt6`, `OpenCV`, `NumPy`, etc., de forma segura.
 > 4.  **Validan la Instalación**: Ejecutan pruebas automatizadas (`pytest`) para asegurar que todo funciona.
 > 5.  **Crean un Lanzador**: Generan un script `run` para facilitar la ejecución futura.
@@ -47,12 +47,12 @@ Si prefieres controlar el proceso, puedes activar el entorno virtual y ejecutar 
 
 -   **En Linux/macOS:**
     ```bash
-    source .venv311/bin/activate
+    source venv/bin/activate
     python -m focusrecorder
     ```
 -   **En Windows:**
     ```cmd
-    .venv311\Scripts\activate.bat
+    venv\Scripts\activate.bat
     python -m focusrecorder
     ```
 
@@ -62,7 +62,7 @@ Para crear instaladores nativos multiplataforma, primero activa el entorno virtu
 
 ```bash
 # Activa el entorno (ejemplo para Linux/macOS)
-source .venv311/bin/activate
+source venv/bin/activate
 
 # Instala briefcase y empaqueta la aplicación
 pip install briefcase
