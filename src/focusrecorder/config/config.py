@@ -1,9 +1,9 @@
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ..domain.settings import RecordingSettings, UISettings, UserPreferences
-from ..domain.preferences import load_user_preferences, save_user_preferences
-from ..domain.constants import (
+from .settings import RecordingSettings, UISettings, UserPreferences
+from .preferences import load_user_preferences, save_user_preferences
+from .constants import (
     DEFAULT_ZOOM,
     DEFAULT_SUAVIDAD,
     DEFAULT_FPS,

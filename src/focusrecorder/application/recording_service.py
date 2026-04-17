@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ..domain.settings import RecordingSettings
+from ..config.settings import RecordingSettings
 from ..recorder import FocusRecorder
 
 

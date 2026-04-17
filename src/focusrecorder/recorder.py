@@ -10,11 +10,11 @@ import platform
 from pathlib import Path
 from dataclasses import replace
 
-from .app.config import get_default_recording_settings
+from .config.config import get_default_recording_settings
 from .app.factories.capture_backend_factory import create_capture_backend
 from .application.errors import RecordingEnvironmentError
 from .domain.ports.capture_backend import CaptureBackend
-from .domain.settings import RecordingSettings
+from .config.settings import RecordingSettings
 
 # Importación condicional según el sistema operativo
 IS_WINDOWS = platform.system() == "Windows"

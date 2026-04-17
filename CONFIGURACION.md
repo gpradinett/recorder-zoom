@@ -82,12 +82,12 @@ También hay un archivo [`focus_recorder_preferences.json.example`](focus_record
    - Se crea `focus_recorder_preferences.json` con valores por defecto
 2. **Carga inicial**: Al abrir la aplicación, se cargan las preferencias guardadas
 3. **Persistencia automática**: Cada vez que inicias una grabación, las configuraciones actuales se guardan automáticamente
-4. **Valores por defecto**: Si el archivo está corrupto, se usan los valores definidos en `domain/constants.py`
+4. **Valores por defecto**: Si el archivo está corrupto, se usan los valores definidos en `config/constants.py`
 5. **Edición manual**: Puedes editar `focus_recorder_preferences.json` directamente cuando la aplicación está cerrada
 
 ## Constantes del Sistema
 
-Las constantes están definidas en [`src/focusrecorder/domain/constants.py`](src/focusrecorder/domain/constants.py):
+Las constantes están definidas en [`src/focusrecorder/config/constants.py`](src/focusrecorder/config/constants.py):
 
 - **DEFAULT_ZOOM**: 1.8
 - **DEFAULT_SUAVIDAD**: 0.05

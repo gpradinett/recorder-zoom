@@ -5,14 +5,14 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                              QProgressBar, QButtonGroup, QRadioButton, QHBoxLayout)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from dataclasses import replace
-from .app.config import (
+from .config.config import (
     get_app_config,
     with_recording_overrides,
     save_user_preferences_from_settings,
 )
 from .application.errors import RecordingEnvironmentError
 from .application.recording_service import RecordingService
-from .domain.constants import (
+from .config.constants import (
     UI_MIN_ZOOM,
     UI_MAX_ZOOM,
     UI_MIN_SUAVIDAD,
@@ -258,7 +258,7 @@ class FocusApp(QWidget):
 
     def _save_current_preferences(self):
         """Save current UI settings to user preferences."""
-        from .domain.settings import UISettings, UserPreferences
+        from .config.settings import UISettings, UserPreferences
         
         updated_recording = with_recording_overrides(
             self.app_config.user_preferences.recording,

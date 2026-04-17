@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from focusrecorder.recorder import FocusRecorder
 import focusrecorder.recorder as recorder_module
-from focusrecorder.domain.settings import RecordingSettings
+from focusrecorder.config.settings import RecordingSettings
 
 def test_recorder_full_rendering_workflow(monkeypatch, tmp_path):
     monkeypatch.setattr(recorder_module.Path, "home", lambda: tmp_path)
