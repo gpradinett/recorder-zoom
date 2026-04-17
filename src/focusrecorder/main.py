@@ -4,9 +4,22 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QSlider, QSpinBox,
                              QProgressBar, QButtonGroup, QRadioButton, QHBoxLayout)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from .app.config import get_app_config, with_recording_overrides
+from dataclasses import replace
+from .app.config import (
+    get_app_config,
+    with_recording_overrides,
+    save_user_preferences_from_settings,
+)
 from .application.errors import RecordingEnvironmentError
 from .application.recording_service import RecordingService
+from .domain.constants import (
+    UI_MIN_ZOOM,
+    UI_MAX_ZOOM,
+    UI_MIN_SUAVIDAD,
+    UI_MAX_SUAVIDAD,
+    UI_MIN_FPS,
+    UI_MAX_FPS,
+)
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
@@ -40,6 +53,26 @@ class FocusApp(QWidget):
         self.recorder = None
         self.init_ui()
 
+    @staticmethod
+    def _recording_zoom_to_ui(zoom: float) -> int:
+        """Convert recording zoom (1.0-4.0) to UI spinbox value (10-40)."""
+        return int(zoom * 10)
+
+    @staticmethod
+    def _ui_zoom_to_recording(ui_value: int) -> float:
+        """Convert UI spinbox value (10-40) to recording zoom (1.0-4.0)."""
+        return ui_value / 10.0
+
+    @staticmethod
+    def _recording_suavidad_to_ui(suavidad: float) -> int:
+        """Convert recording suavidad (0.01-0.20) to UI slider value (1-20)."""
+        return int(suavidad * 100)
+
+    @staticmethod
+    def _ui_suavidad_to_recording(ui_value: int) -> float:
+        """Convert UI slider value (1-20) to recording suavidad (0.01-0.20)."""
+        return ui_value / 100.0
+
     def init_ui(self):
         self.setWindowTitle("Video Recorder Control Panel")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
@@ -66,7 +99,16 @@ class FocusApp(QWidget):
         self.radio_full   = QRadioButton("Pantalla completa")
         self.radio_tiktok = QRadioButton("TikTok 9:16")
         self.radio_both   = QRadioButton("Ambos")
-        self.radio_full.setChecked(True)
+        
+        # Set initial export mode from user preferences
+        mode_map = {"full": 0, "tiktok": 1, "both": 2}
+        initial_mode = self.app_config.user_preferences.ui.export_mode
+        if initial_mode == "full":
+            self.radio_full.setChecked(True)
+        elif initial_mode == "tiktok":
+            self.radio_tiktok.setChecked(True)
+        else:
+            self.radio_both.setChecked(True)
 
         self.export_group.addButton(self.radio_full,   0)
         self.export_group.addButton(self.radio_tiktok, 1)
@@ -80,8 +122,10 @@ class FocusApp(QWidget):
         # --- AJUSTE DE ZOOM ---
         layout.addWidget(QLabel("Nivel de Zoom:"))
         self.zoom_spin = QSpinBox()
-        self.zoom_spin.setRange(10, 40)
-        self.zoom_spin.setValue(int(self.app_config.default_recording_settings.zoom * 10))
+        self.zoom_spin.setRange(UI_MIN_ZOOM, UI_MAX_ZOOM)
+        self.zoom_spin.setValue(
+            self._recording_zoom_to_ui(self.app_config.user_preferences.recording.zoom)
+        )
         self.zoom_spin.setPrefix("x ")
         self.zoom_spin.setSingleStep(2)
         layout.addWidget(self.zoom_spin)
@@ -89,15 +133,17 @@ class FocusApp(QWidget):
         # --- AJUSTE DE SUAVIDAD ---
         layout.addWidget(QLabel("Suavidad de Cámara (Inercia):"))
         self.smooth_slider = QSlider(Qt.Orientation.Horizontal)
-        self.smooth_slider.setRange(1, 20)
-        self.smooth_slider.setValue(int(self.app_config.default_recording_settings.suavidad * 100))
+        self.smooth_slider.setRange(UI_MIN_SUAVIDAD, UI_MAX_SUAVIDAD)
+        self.smooth_slider.setValue(
+            self._recording_suavidad_to_ui(self.app_config.user_preferences.recording.suavidad)
+        )
         layout.addWidget(self.smooth_slider)
 
         # --- AJUSTE DE FPS ---
         layout.addWidget(QLabel("FPS del Video Final:"))
         self.fps_spin = QSpinBox()
-        self.fps_spin.setRange(24, 60)
-        self.fps_spin.setValue(self.app_config.default_recording_settings.fps)
+        self.fps_spin.setRange(UI_MIN_FPS, UI_MAX_FPS)
+        self.fps_spin.setValue(self.app_config.user_preferences.recording.fps)
         layout.addWidget(self.fps_spin)
 
         # --- ESTADO ---
@@ -124,7 +170,7 @@ class FocusApp(QWidget):
 
     def _get_video_directory_display(self):
         """Obtiene la ruta de videos para mostrar en la UI"""
-        return str(self.app_config.default_recording_settings.output_dir)
+        return str(self.app_config.user_preferences.recording.output_dir)
 
     def _get_export_mode(self):
         return {0: "full", 1: "tiktok", 2: "both"}[self.export_group.checkedId()]
@@ -137,11 +183,14 @@ class FocusApp(QWidget):
     def toggle(self):
         if self.recorder is None or not self.recorder.is_recording:
             self._set_controls_enabled(False)
+            
+            # Save current settings to preferences
+            self._save_current_preferences()
 
             settings = with_recording_overrides(
-                self.app_config.default_recording_settings,
-                zoom=self.zoom_spin.value() / 10.0,
-                suavidad=self.smooth_slider.value() / 100.0,
+                self.app_config.user_preferences.recording,
+                zoom=self._ui_zoom_to_recording(self.zoom_spin.value()),
+                suavidad=self._ui_suavidad_to_recording(self.smooth_slider.value()),
                 fps=self.fps_spin.value(),
             )
             try:
@@ -195,6 +244,29 @@ class FocusApp(QWidget):
 
         self.progress_bar.setVisible(False)
         self._set_controls_enabled(True)
+
+    def _save_current_preferences(self):
+        """Save current UI settings to user preferences."""
+        from .domain.settings import UISettings, UserPreferences
+        
+        updated_recording = with_recording_overrides(
+            self.app_config.user_preferences.recording,
+            zoom=self._ui_zoom_to_recording(self.zoom_spin.value()),
+            suavidad=self._ui_suavidad_to_recording(self.smooth_slider.value()),
+            fps=self.fps_spin.value(),
+        )
+        
+        updated_ui = UISettings(export_mode=self._get_export_mode())
+        
+        updated_prefs = UserPreferences(
+            recording=updated_recording,
+            ui=updated_ui,
+        )
+        
+        save_user_preferences_from_settings(updated_prefs)
+        
+        # Update app config in memory
+        self.app_config = replace(self.app_config, user_preferences=updated_prefs)
 
 
 def run():

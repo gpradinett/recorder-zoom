@@ -89,6 +89,8 @@ python -m focusrecorder
 3. **Formatos**: Elige si quieres el video normal, el vertical de TikTok, o ambos.
 4. **Salida**: Los videos se guardan por defecto en tu carpeta `Escritorio/videos`.
 
+> **💾 Persistencia de Preferencias**: Todas las configuraciones se guardan automáticamente. Consulta [CONFIGURACION.md](CONFIGURACION.md) para configuración avanzada, ubicación de archivos y edición manual de preferencias.
+
 ## 📁 Estructura del Código
 ```
 src/focusrecorder/

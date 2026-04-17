@@ -1,0 +1,7 @@
+{
+  "zoom": 1.8,
+  "suavidad": 0.05,
+  "fps": 60,
+  "export_mode": "full",
+  "output_dir": "~/Desktop/videos"
+}

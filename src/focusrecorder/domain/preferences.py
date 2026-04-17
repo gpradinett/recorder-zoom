@@ -1,0 +1,140 @@
+"""User preferences persistence using JSON files."""
+
+import json
+import platform
+from pathlib import Path
+from typing import Any
+
+from .constants import (
+    CONFIG_FILENAME,
+    DEFAULT_ZOOM,
+    DEFAULT_SUAVIDAD,
+    DEFAULT_FPS,
+    DEFAULT_EXPORT_MODE,
+    DEFAULT_OUTPUT_FOLDER_NAME,
+)
+
+
+def _get_config_directory() -> Path:
+    """Get platform-specific user configuration directory."""
+    system = platform.system()
+    
+    if system == "Windows":
+        # Windows: %APPDATA%\FocusRecorder
+        base = Path.home() / "AppData" / "Roaming"
+    elif system == "Darwin":
+        # macOS: ~/Library/Application Support/FocusRecorder
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        # Linux: ~/.config/FocusRecorder
+        base = Path.home() / ".config"
+    
+    config_dir = base / "FocusRecorder"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir
+
+
+def get_config_file_path() -> Path:
+    """Get the full path to the configuration file."""
+    return _get_config_directory() / CONFIG_FILENAME
+
+
+def get_example_config_file_path() -> Path:
+    """Get the full path to the example configuration file."""
+    return _get_config_directory() / f"{CONFIG_FILENAME}.example"
+
+
+def _create_example_config_file() -> None:
+    """Create an example configuration file for user reference."""
+    example_path = get_example_config_file_path()
+    
+    if example_path.exists():
+        return  # Don't overwrite existing example
+    
+    example_data = _get_default_preferences()
+    
+    try:
+        with open(example_path, "w", encoding="utf-8") as f:
+            json.dump(example_data, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass  # Silently fail if we can't write
+
+
+def load_user_preferences() -> dict[str, Any]:
+    """
+    Load user preferences from JSON file.
+    Returns default values if file doesn't exist or is invalid.
+    Creates an example config file on first run.
+    """
+    config_path = get_config_file_path()
+    
+    # Create example file for reference
+    _create_example_config_file()
+    
+    if not config_path.exists():
+        # Create initial config file with defaults
+        defaults = _get_default_preferences()
+        save_user_preferences(defaults)
+        return defaults
+    
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # Validate and merge with defaults
+        return _merge_with_defaults(data)
+    except (json.JSONDecodeError, OSError):
+        # If file is corrupted, return defaults
+        return _get_default_preferences()
+
+
+def save_user_preferences(preferences: dict[str, Any]) -> None:
+    """Save user preferences to JSON file."""
+    config_path = get_config_file_path()
+    
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(preferences, f, indent=2, ensure_ascii=False)
+    except OSError:
+        # Silently fail if we can't write
+        pass
+
+
+def _get_default_preferences() -> dict[str, Any]:
+    """Get default preference values."""
+    return {
+        "zoom": DEFAULT_ZOOM,
+        "suavidad": DEFAULT_SUAVIDAD,
+        "fps": DEFAULT_FPS,
+        "export_mode": DEFAULT_EXPORT_MODE,
+        "output_dir": str(Path.home() / "Desktop" / DEFAULT_OUTPUT_FOLDER_NAME),
+    }
+
+
+def _merge_with_defaults(user_data: dict[str, Any]) -> dict[str, Any]:
+    """Merge user data with defaults, ensuring all required keys exist."""
+    defaults = _get_default_preferences()
+    
+    # Start with defaults
+    merged = defaults.copy()
+    
+    # Override with valid user values
+    if isinstance(user_data.get("zoom"), (int, float)):
+        merged["zoom"] = float(user_data["zoom"])
+    
+    if isinstance(user_data.get("suavidad"), (int, float)):
+        merged["suavidad"] = float(user_data["suavidad"])
+    
+    if isinstance(user_data.get("fps"), int):
+        merged["fps"] = user_data["fps"]
+    
+    if isinstance(user_data.get("export_mode"), str):
+        if user_data["export_mode"] in ("full", "tiktok", "both"):
+            merged["export_mode"] = user_data["export_mode"]
+    
+    if isinstance(user_data.get("output_dir"), str):
+        # Expand ~ to user home directory
+        output_path = Path(user_data["output_dir"]).expanduser()
+        merged["output_dir"] = str(output_path)
+    
+    return merged
