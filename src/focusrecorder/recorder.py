@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import pyautogui
 import threading
 from pynput import mouse
 import time
@@ -9,39 +8,27 @@ import subprocess
 import imageio_ffmpeg
 import platform
 from pathlib import Path
+from dataclasses import replace
+
+from .app.config import get_default_recording_settings
+from .app.factories.capture_backend_factory import create_capture_backend
+from .application.errors import RecordingEnvironmentError
+from .domain.ports.capture_backend import CaptureBackend
+from .domain.settings import RecordingSettings
 
 # Importación condicional según el sistema operativo
 IS_WINDOWS = platform.system() == "Windows"
 
-if IS_WINDOWS:  # pragma: no cover
-    try:
-        import dxcam
-    except ImportError:
-        dxcam = None
-else:  # pragma: no cover
-    dxcam = None
-
-import mss
 
 
 class FocusRecorder:
-    _camera_instance = None
-
     def __init__(self, config=None):
         self.is_windows = IS_WINDOWS
-        
-        if self.is_windows and dxcam:
-            if FocusRecorder._camera_instance is None:
-                FocusRecorder._camera_instance = dxcam.create(output_color="BGR")
-            self.camera = FocusRecorder._camera_instance
-        else:
-            # En Linux no inicializamos aquí mss por seguridad de hilos
-            self.sct = None
-            self.monitor = None
-
-        self.config = config
+        self.mouse_controller = mouse.Controller()
+        self.settings = self._coerce_settings(config)
+        self.capture_backend = self._build_capture_backend()
         self.is_recording = False
-        self.sw, self.sh = pyautogui.size()
+        self.sw, self.sh = self._get_screen_size()
         self.raw_data = []
         self.is_clicking = False
 
@@ -54,13 +41,32 @@ class FocusRecorder:
     def _get_video_directory(self):
         """
         Obtiene la carpeta de videos apropiada según la plataforma.
-        Guarda en ~/video-focussee para evitar problemas con localización
-        (ej: "Videos" vs "Vídeos" en español).
+        Guarda en una carpeta compartida del workspace para que los archivos sean
+        accesibles también desde Windows cuando se trabaja sobre /d.
         """
-        # Crear carpeta video-focussee directamente en el home del usuario
-        output_dir = Path.home() / "video-focussee"
-        
-        return str(output_dir)
+        return str(self.settings.output_dir)
+
+    def _coerce_settings(self, config):
+        if config is None:
+            return get_default_recording_settings()
+
+        if isinstance(config, RecordingSettings):
+            return config
+
+        if isinstance(config, dict):
+            settings = get_default_recording_settings()
+            updates = {}
+            if "zoom" in config:
+                updates["zoom"] = config["zoom"]
+            if "suavidad" in config:
+                updates["suavidad"] = config["suavidad"]
+            if "fps" in config:
+                updates["fps"] = config["fps"]
+            if "output_dir" in config:
+                updates["output_dir"] = Path(config["output_dir"])
+            return replace(settings, **updates)
+
+        raise TypeError("config must be None, a dict, or RecordingSettings")
 
     def _get_next_filename(self):
         idx = 1
@@ -73,7 +79,29 @@ class FocusRecorder:
     def _on_click(self, x, y, button, pressed):
         self.is_clicking = pressed
 
+    def _build_capture_backend(self) -> CaptureBackend:
+        return create_capture_backend(is_windows=self.is_windows)
+
+    def _get_screen_size(self):
+        return self.capture_backend.get_screen_size()
+
+    def _get_mouse_position(self):
+        x, y = self.mouse_controller.position
+        return int(x), int(y)
+
+    def _validate_capture_backend(self):
+        try:
+            self.capture_backend.validate()
+        except Exception as exc:
+            backend_name = type(self.capture_backend).__name__
+            message = (
+                f"No se pudo iniciar la captura de pantalla con {backend_name}. "
+                "El entorno actual no parece ser compatible con el backend de captura seleccionado."
+            )
+            raise RecordingEnvironmentError(message) from exc
+
     def start(self):
+        self._validate_capture_backend()
         self.is_recording = True
         self.raw_data = []
         self.start_time = time.perf_counter()
@@ -90,37 +118,23 @@ class FocusRecorder:
         self._render_adaptive_video(callback_progress, export_mode)
 
     def _record_loop(self):
-        if self.is_windows and dxcam:
-            self.camera.start(target_fps=0)
+        self.capture_backend.start()
+        try:
             while self.is_recording:
-                frame = self.camera.get_latest_frame()
+                frame = self.capture_backend.capture_frame()
                 if frame is None:
                     continue
-                mx, my = pyautogui.position()
+
+                mx, my = self._get_mouse_position()
                 ts = time.perf_counter() - self.start_time
                 self.raw_data.append((frame.copy(), mx, my, self.is_clicking, ts))
-                time.sleep(0.001)
-            self.camera.stop()
-        else:
-            # Bucle para Linux usando mss
-            # IMPORTANTE: mss debe inicializarse DENTRO del hilo en Linux
-            with mss.mss() as sct:
-                # Usamos monitor 0 que representa la pantalla completa (toda la superficie)
-                # Esto coincide con los valores devueltos por pyautogui.size()
-                monitor = sct.monitors[0]
-                while self.is_recording:
-                    # Capturar pantalla
-                    sct_img = sct.grab(monitor)
-                    # Convertir a numpy array y quitar canal alpha
-                    frame = np.array(sct_img)
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                    
-                    mx, my = pyautogui.position()
-                    ts = time.perf_counter() - self.start_time
-                    self.raw_data.append((frame, mx, my, self.is_clicking, ts))
-                    
-                    # Pequeño sleep para no saturar la CPU
+
+                if self.is_windows:
+                    time.sleep(0.001)
+                else:
                     time.sleep(0.01)
+        finally:
+            self.capture_backend.stop()
 
     def _reencode_h264(self, input_path):
         """
@@ -159,7 +173,7 @@ class FocusRecorder:
             return
 
         total_duration = self.raw_data[-1][4]
-        target_fps = int(self.config['fps'])
+        target_fps = int(self.settings.fps)
         total_frames = int(total_duration * target_fps)
 
         # Codec para Linux/Windows (mp4v es seguro para OpenCV)
@@ -187,7 +201,7 @@ class FocusRecorder:
         cam_y = float(self.sh // 2)
         tiktok_cam_x = float(self.sw // 2)
         tiktok_cam_y = float(self.sh // 2)
-        tiktok_smooth = min(self.config['suavidad'] * 1.5, 1.0)
+        tiktok_smooth = min(self.settings.suavidad * 1.5, 1.0)
 
         data_ptr = 0
 
@@ -202,12 +216,12 @@ class FocusRecorder:
 
             frame, mx, my, clicking, _ = self.raw_data[data_ptr]
             color = (0, 215, 255) if clicking else (255, 255, 255)
-            zn = self.config['zoom']
+            zn = self.settings.zoom
 
             # ── PANTALLA COMPLETA ────────────────────────────────────────
             if do_full:
-                cam_x += (mx - cam_x) * self.config['suavidad']
-                cam_y += (my - cam_y) * self.config['suavidad']
+                cam_x += (mx - cam_x) * self.settings.suavidad
+                cam_y += (my - cam_y) * self.settings.suavidad
 
                 z_w = int(self.sw / zn)
                 z_h = int(self.sh / zn)

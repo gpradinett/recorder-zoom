@@ -1,11 +1,12 @@
 import sys
 import os
-from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QSlider, QSpinBox,
                              QProgressBar, QButtonGroup, QRadioButton, QHBoxLayout)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from .recorder import FocusRecorder
+from .app.config import get_app_config, with_recording_overrides
+from .application.errors import RecordingEnvironmentError
+from .application.recording_service import RecordingService
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
@@ -14,24 +15,28 @@ class RenderThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(str, str)
 
-    def __init__(self, recorder, export_mode):
+    def __init__(self, recording_service, recorder, export_mode):
         super().__init__()
+        self.recording_service = recording_service
         self.recorder = recorder
         self.export_mode = export_mode  # "full", "tiktok", "both"
 
     def run(self):
-        self.recorder.stop(
+        result = self.recording_service.stop_recording(
+            self.recorder,
             callback_progress=self.progress.emit,
-            export_mode=self.export_mode
+            export_mode=self.export_mode,
         )
-        full    = self.recorder.filename if self.export_mode in ("full", "both") else ""
-        tiktok  = self.recorder.filename.replace(".mp4", "_tiktok.mp4") if self.export_mode in ("tiktok", "both") else ""
+        full = result["full_path"]
+        tiktok = result["tiktok_path"]
         self.finished.emit(full, tiktok)
 
 
 class FocusApp(QWidget):
     def __init__(self):
         super().__init__()
+        self.app_config = get_app_config()
+        self.recording_service = RecordingService()
         self.recorder = None
         self.init_ui()
 
@@ -76,7 +81,7 @@ class FocusApp(QWidget):
         layout.addWidget(QLabel("Nivel de Zoom:"))
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(10, 40)
-        self.zoom_spin.setValue(18)
+        self.zoom_spin.setValue(int(self.app_config.default_recording_settings.zoom * 10))
         self.zoom_spin.setPrefix("x ")
         self.zoom_spin.setSingleStep(2)
         layout.addWidget(self.zoom_spin)
@@ -85,14 +90,14 @@ class FocusApp(QWidget):
         layout.addWidget(QLabel("Suavidad de Cámara (Inercia):"))
         self.smooth_slider = QSlider(Qt.Orientation.Horizontal)
         self.smooth_slider.setRange(1, 20)
-        self.smooth_slider.setValue(5)
+        self.smooth_slider.setValue(int(self.app_config.default_recording_settings.suavidad * 100))
         layout.addWidget(self.smooth_slider)
 
         # --- AJUSTE DE FPS ---
         layout.addWidget(QLabel("FPS del Video Final:"))
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(24, 60)
-        self.fps_spin.setValue(60)
+        self.fps_spin.setValue(self.app_config.default_recording_settings.fps)
         layout.addWidget(self.fps_spin)
 
         # --- ESTADO ---
@@ -119,8 +124,7 @@ class FocusApp(QWidget):
 
     def _get_video_directory_display(self):
         """Obtiene la ruta de videos para mostrar en la UI"""
-        output_dir = Path.home() / "video-focussee"
-        return str(output_dir)
+        return str(self.app_config.default_recording_settings.output_dir)
 
     def _get_export_mode(self):
         return {0: "full", 1: "tiktok", 2: "both"}[self.export_group.checkedId()]
@@ -134,17 +138,30 @@ class FocusApp(QWidget):
         if self.recorder is None or not self.recorder.is_recording:
             self._set_controls_enabled(False)
 
-            self.recorder = FocusRecorder(config={
-                'zoom':     self.zoom_spin.value() / 10.0,
-                'suavidad': self.smooth_slider.value() / 100.0,
-                'fps':      self.fps_spin.value()
-            })
-            self.recorder.start()
+            settings = with_recording_overrides(
+                self.app_config.default_recording_settings,
+                zoom=self.zoom_spin.value() / 10.0,
+                suavidad=self.smooth_slider.value() / 100.0,
+                fps=self.fps_spin.value(),
+            )
+            try:
+                result = self.recording_service.start_recording(settings)
+                self.recorder = result.recorder
+            except RecordingEnvironmentError as exc:
+                self.recorder = None
+                self._set_controls_enabled(True)
+                self.status.setText(f"❌ {exc}")
+                return
+            except Exception as exc:
+                self.recorder = None
+                self._set_controls_enabled(True)
+                self.status.setText(f"❌ Error inesperado al iniciar: {exc}")
+                return
 
             self.btn.setText("DETENER Y PROCESAR")
             self.btn.setStyleSheet("background: #dc3545; color: white; font-weight: bold;")
             # Mostrar solo el nombre del archivo, no la ruta completa
-            filename = os.path.basename(self.recorder.filename)
+            filename = os.path.basename(result.filename)
             self.status.setText(f"🔴 Grabando...\n{filename}")
 
         else:
@@ -155,7 +172,7 @@ class FocusApp(QWidget):
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
 
-            self.render_thread = RenderThread(self.recorder, export_mode=mode)
+            self.render_thread = RenderThread(self.recording_service, self.recorder, export_mode=mode)
             self.render_thread.progress.connect(self.progress_bar.setValue)
             self.render_thread.finished.connect(self.on_finished)
             self.render_thread.start()
@@ -190,3 +207,4 @@ def run():
 
 if __name__ == "__main__":  # pragma: no cover
     run()
+

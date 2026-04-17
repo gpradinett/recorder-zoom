@@ -1,4 +1,4 @@
-# Focus Recorder - Grabador de Pantalla con Seguimiento
+# Video Recorder - Grabador de Pantalla con Seguimiento
 
 Aplicación multiplataforma para grabar pantalla con seguimiento del cursor y zoom dinámico.
 
