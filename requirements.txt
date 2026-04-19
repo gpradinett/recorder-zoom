@@ -6,3 +6,4 @@ pyautogui==0.9.54
 pynput==1.8.1
 imageio-ffmpeg==0.5.1
 mss==9.0.2
+sounddevice>=0.4.6  # opcional: habilita grabación de micrófono

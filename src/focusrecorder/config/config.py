@@ -41,6 +41,7 @@ def load_user_preferences_as_settings() -> UserPreferences:
         suavidad=prefs["suavidad"],
         fps=prefs["fps"],
         output_dir=Path(prefs["output_dir"]),
+        audio=prefs.get("audio", False),
     )
     
     ui_settings = UISettings(export_mode=prefs["export_mode"])
@@ -56,6 +57,7 @@ def save_user_preferences_from_settings(preferences: UserPreferences) -> None:
         "fps": preferences.recording.fps,
         "output_dir": str(preferences.recording.output_dir),
         "export_mode": preferences.ui.export_mode,
+        "audio": preferences.recording.audio,
     }
     save_user_preferences(prefs_dict)
 
@@ -72,6 +74,7 @@ def with_recording_overrides(
     zoom: float | None = None,
     suavidad: float | None = None,
     fps: int | None = None,
+    audio: bool | None = None,
 ) -> RecordingSettings:
     """Create a new RecordingSettings with overridden values."""
     updates = {}
@@ -81,6 +84,8 @@ def with_recording_overrides(
         updates["suavidad"] = suavidad
     if fps is not None:
         updates["fps"] = fps
+    if audio is not None:
+        updates["audio"] = audio
     return replace(settings, **updates)
 
 
@@ -102,6 +107,12 @@ def coerce_recording_settings(config) -> RecordingSettings:
             updates["fps"] = config["fps"]
         if "output_dir" in config:
             updates["output_dir"] = Path(config["output_dir"])
+        if "audio" in config:
+            updates["audio"] = config["audio"]
+        if "audio_device" in config:
+            updates["audio_device"] = config["audio_device"]
+        if "custom_name" in config:
+            updates["custom_name"] = config["custom_name"]
         return replace(settings, **updates)
 
     raise TypeError("config must be None, a dict, or RecordingSettings")

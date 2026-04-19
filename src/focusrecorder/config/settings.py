@@ -9,6 +9,9 @@ class RecordingSettings:
     suavidad: float
     fps: int
     output_dir: Path
+    custom_name: str = ""
+    audio: bool = False
+    audio_device: int | None = None
 
 
 @dataclass(frozen=True)

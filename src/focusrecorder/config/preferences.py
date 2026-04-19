@@ -11,6 +11,7 @@ from .constants import (
     DEFAULT_FPS,
     DEFAULT_EXPORT_MODE,
     DEFAULT_OUTPUT_FOLDER_NAME,
+    DEFAULT_AUDIO,
 )
 from ..infrastructure.system.platform_paths import get_config_directory
 
@@ -89,6 +90,7 @@ def _get_default_preferences() -> dict[str, Any]:
         "fps": DEFAULT_FPS,
         "export_mode": DEFAULT_EXPORT_MODE,
         "output_dir": str(Path.home() / "Desktop" / DEFAULT_OUTPUT_FOLDER_NAME),
+        "audio": DEFAULT_AUDIO,
     }
 
 
@@ -117,5 +119,8 @@ def _merge_with_defaults(user_data: dict[str, Any]) -> dict[str, Any]:
         # Expand ~ to user home directory
         output_path = Path(user_data["output_dir"]).expanduser()
         merged["output_dir"] = str(output_path)
-    
+
+    if isinstance(user_data.get("audio"), bool):
+        merged["audio"] = user_data["audio"]
+
     return merged

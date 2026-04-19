@@ -19,6 +19,7 @@ dependencies = [
     "pynput==1.8.1",
     "imageio-ffmpeg==0.5.1",
     "mss==9.0.2",
+    "sounddevice>=0.4.6",
 ]
 
 [project.scripts]
@@ -90,6 +91,7 @@ requires = [
     "pynput==1.8.1",
     "imageio-ffmpeg==0.5.1",
     "mss==9.0.2",
+    "sounddevice>=0.4.6",
 ]
 
 [tool.briefcase.app.focusrecorder.windows]

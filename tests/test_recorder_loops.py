@@ -57,8 +57,8 @@ def test_record_loop_windows_branch(monkeypatch, tmp_path):
     rec.mouse_provider.get_position.return_value = (0, 0)
     
     rec._record_loop()
-    
-    assert len(rec.raw_data) > 0
+
+    assert len(rec.session.mouse_data) > 0
     assert mock_backend.start.called
     assert mock_backend.stop.called
 
@@ -83,6 +83,6 @@ def test_record_loop_linux_branch(monkeypatch, tmp_path):
     monkeypatch.setattr(time, "sleep", lambda x: None)
 
     rec._record_loop()
-    
-    assert len(rec.raw_data) == 1
+
+    assert len(rec.session.mouse_data) == 1
 
