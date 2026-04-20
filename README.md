@@ -52,7 +52,7 @@ Ejecuta el script correspondiente a tu sistema operativo para configurar todo au
   ```
 **Windows**:
   ```cmd
-  setup.bat
+  .\setup.bat
   ```
 
 Estos scripts realizan una instalación completa:

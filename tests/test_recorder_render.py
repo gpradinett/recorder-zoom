@@ -61,14 +61,11 @@ def test_recorder_full_various_modes(monkeypatch, tmp_path):
     rec = FocusRecorder(config={"zoom": 2.0, "suavidad": 0.5, "fps": 10})
     rec.capture_backend = MagicMock()
     
-    # Mock reencode_to_h264 to avoid file system operations
     monkeypatch.setattr(video_utils_module, "reencode_to_h264", lambda x: None)
     
-    # Create a mock VideoWriter that creates files
     class MockVideoWriter:
         def __init__(self, filename, fourcc, fps, frameSize):
             self.filename = filename
-            # Create the file to avoid FileNotFoundError in reencode_to_h264
             import os
             os.makedirs(os.path.dirname(filename), exist_ok=True)
             with open(filename, 'wb') as f:
@@ -102,21 +99,17 @@ def test_recorder_reencode_fails_gracefully(monkeypatch, tmp_path):
     rec = FocusRecorder(config={"zoom": 2.0, "suavidad": 0.5, "fps": 10})
     rec.capture_backend = MagicMock()
     
-    # Mock the subprocess.run used by reencode_to_h264
     mock_subprocess_run = MagicMock()
     monkeypatch.setattr(subprocess, "run", mock_subprocess_run)
     
-    # Mock os functions used by reencode_to_h264
     mock_os_exists = MagicMock(return_value=False)
     mock_os_getsize = MagicMock(return_value=100)
     monkeypatch.setattr(os.path, "exists", mock_os_exists)
     monkeypatch.setattr(os.path, "getsize", mock_os_getsize)
     
-    # Call the function from video_utils
     from focusrecorder.utils.video_utils import reencode_to_h264
     reencode_to_h264("fake_path.mp4")
     
-    # Verify subprocess was called
     assert mock_subprocess_run.called
 
 
@@ -136,3 +129,89 @@ def test_recorder_stop_no_listener(monkeypatch, tmp_path):
     
     rec.stop(None, "full")
     rec._render_adaptive_video.assert_called_once()
+
+def test_renderer_synchronizes_low_framerate_to_target_fps(monkeypatch):
+    from focusrecorder.infrastructure.rendering.adaptive_renderer import AdaptiveVideoRenderer
+    from focusrecorder.config.settings import RecordingSettings
+    import focusrecorder.infrastructure.rendering.adaptive_renderer as renderer_module
+    
+    written_frames = []
+    class MockVideoWriter:
+        def __init__(self, filename, fourcc, fps, frameSize): pass
+        def write(self, frame): written_frames.append(frame)
+        def release(self): pass
+        
+    monkeypatch.setattr(cv2, "VideoWriter", MockVideoWriter)
+    monkeypatch.setattr(cv2, "VideoWriter_fourcc", lambda *args: "mp4v")
+    monkeypatch.setattr(renderer_module, "reencode_to_h264", lambda x: None)
+    
+    renderer = AdaptiveVideoRenderer()
+    settings = RecordingSettings(fps=30, zoom=2.0, suavidad=0.5, output_dir=".")
+    
+    blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    raw_data = [
+        (blank_frame, 320, 240, False, 0.0),
+        (blank_frame, 320, 240, True, 1.0),
+        (blank_frame, 100, 100, False, 2.0),
+    ]
+    
+    renderer.render(
+        raw_data=raw_data,
+        settings=settings,
+        screen_size=(640, 480),
+        output_filename="dummy.mp4",
+        export_mode="full"
+    )
+    
+    assert len(written_frames) == 60, f"Se esperaban 60 frames, se obtuvieron {len(written_frames)}"
+
+
+def test_renderer_from_file_synchronizes_low_framerate_to_target_fps(monkeypatch):
+    from focusrecorder.infrastructure.rendering.adaptive_renderer import AdaptiveVideoRenderer
+    from focusrecorder.config.settings import RecordingSettings
+    import focusrecorder.infrastructure.rendering.adaptive_renderer as renderer_module
+    
+    written_frames = []
+    class MockVideoWriter:
+        def __init__(self, filename, fourcc, fps, frameSize): pass
+        def write(self, frame): written_frames.append(frame)
+        def release(self): pass
+
+    blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    class MockVideoCapture:
+        def __init__(self, path):
+            self.frames = [blank_frame.copy(), blank_frame.copy(), blank_frame.copy()]
+            self.idx = 0
+        def read(self):
+            if self.idx < len(self.frames):
+                frame = self.frames[self.idx]
+                self.idx += 1
+                return True, frame
+            return False, None
+        def isOpened(self): return True
+        def release(self): pass
+
+    monkeypatch.setattr(cv2, "VideoWriter", MockVideoWriter)
+    monkeypatch.setattr(cv2, "VideoCapture", MockVideoCapture)
+    monkeypatch.setattr(cv2, "VideoWriter_fourcc", lambda *args: "mp4v")
+    monkeypatch.setattr(renderer_module, "reencode_to_h264", lambda x: None)
+    
+    renderer = AdaptiveVideoRenderer()
+    settings = RecordingSettings(fps=30, zoom=2.0, suavidad=0.5, output_dir=".")
+    
+    mouse_data = [
+        (320, 240, False, 0.0),
+        (320, 240, True, 1.25),
+        (100, 100, False, 2.5),
+    ]
+    
+    renderer.render_from_file(
+        temp_path="dummy.avi",
+        mouse_data=mouse_data,
+        settings=settings,
+        screen_size=(640, 480),
+        output_filename="dummy.mp4",
+        export_mode="full"
+    )
+    
+    assert len(written_frames) == 75, f"Se esperaban 75 frames, se obtuvieron {len(written_frames)}"

@@ -21,7 +21,7 @@ class AdaptiveVideoRenderer:
         sw, sh = screen_size
         total_duration = raw_data[-1][4]
         target_fps = int(settings.fps)
-        total_frames = int(total_duration * target_fps)
+        total_frames = max(int(total_duration * target_fps), 1)
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
 
@@ -137,14 +137,17 @@ class AdaptiveVideoRenderer:
         export_mode="full",
     ):
         cap = cv2.VideoCapture(temp_path)
-        total_frames = len(mouse_data)
+        total_frames_recorded = len(mouse_data)
 
-        if not cap.isOpened() or total_frames == 0:
+        if not cap.isOpened() or total_frames_recorded == 0:
             cap.release()
             return
 
-        sw, sh = screen_size
+        total_duration = mouse_data[-1][3]
         target_fps = int(settings.fps)
+        total_target_frames = max(int(total_duration * target_fps), 1)
+
+        sw, sh = screen_size
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
         render_weight = 0.8
 
@@ -173,13 +176,24 @@ class AdaptiveVideoRenderer:
         tiktok_smooth = min(settings.suavidad * 1.5, 1.0)
         zn = settings.zoom
 
-        for f_idx in range(total_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
+        data_ptr = 0
+        ret, current_frame = cap.read()
+        if not ret:
+            cap.release()
+            return
 
-            mx, my, clicking, _ = mouse_data[f_idx]
+        for f_idx in range(total_target_frames):
+            current_time = f_idx / target_fps
+
+            while data_ptr < total_frames_recorded - 1 and mouse_data[data_ptr + 1][3] < current_time:
+                data_ptr += 1
+                ret, next_frame = cap.read()
+                if ret:
+                    current_frame = next_frame
+
+            mx, my, clicking, _ = mouse_data[data_ptr]
             color = (0, 215, 255) if clicking else (255, 255, 255)
+            frame = current_frame
 
             if do_full and out_full:
                 cam_x += (mx - cam_x) * settings.suavidad
@@ -218,7 +232,7 @@ class AdaptiveVideoRenderer:
                     out_tiktok.write(final_tt)
 
             if callback_progress and f_idx % 10 == 0:
-                callback_progress(int((f_idx / total_frames) * 100 * render_weight))
+                callback_progress(int((f_idx / total_target_frames) * 100 * render_weight))
 
         cap.release()
 
