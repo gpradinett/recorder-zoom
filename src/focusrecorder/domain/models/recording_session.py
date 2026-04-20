@@ -19,13 +19,19 @@ class RecordingSessionState:
     is_recording: bool = False
     is_clicking: bool = False
     start_time: float = 0.0
-    raw_data: list[tuple[Any, int, int, bool, float]] = field(default_factory=list)
+    mouse_data: list = field(default_factory=list)  # (mx, my, clicking, ts) — sin frames
+    latest_frame: Any = None
+    latest_mx: int = 0
+    latest_my: int = 0
 
     def reset(self, start_time: float) -> None:
         self.is_recording = True
         self.is_clicking = False
         self.start_time = start_time
-        self.raw_data = []
+        self.mouse_data = []
+        self.latest_frame = None
+        self.latest_mx = 0
+        self.latest_my = 0
 
     def stop(self) -> None:
         self.is_recording = False
@@ -34,4 +40,9 @@ class RecordingSessionState:
         self.is_clicking = pressed
 
     def append_sample(self, sample: FrameSample) -> None:
-        self.raw_data.append(sample.as_tuple())
+        self.mouse_data.append(
+            (sample.mouse_x, sample.mouse_y, sample.is_clicking, sample.timestamp)
+        )
+        self.latest_frame = sample.frame
+        self.latest_mx = sample.mouse_x
+        self.latest_my = sample.mouse_y

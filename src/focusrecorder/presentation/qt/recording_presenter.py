@@ -66,14 +66,19 @@ class RecordingPresenter:
             "suavidad": recording_suavidad_to_ui(recording.suavidad),
             "fps": recording.fps,
             "export_mode": self.app_config.user_preferences.ui.export_mode,
+            "audio": recording.audio,
         }
 
     def has_active_recording(self):
         return self.recorder is not None and self.recorder.is_recording
 
-    def start_recording(self, *, zoom, suavidad, fps):
-        self.save_current_preferences(zoom=zoom, suavidad=suavidad, fps=fps)
-        settings = self.app_config.user_preferences.recording
+    def start_recording(self, *, zoom, suavidad, fps, custom_name="", audio=False, audio_device=None):
+        self.save_current_preferences(zoom=zoom, suavidad=suavidad, fps=fps, audio=audio)
+        settings = replace(
+            self.app_config.user_preferences.recording,
+            custom_name=custom_name,
+            audio_device=audio_device,
+        )
         result = self.start_recording_use_case.execute(settings)
         self.recorder = result.recorder
         filename = os.path.basename(result.filename)
@@ -107,12 +112,13 @@ class RecordingPresenter:
             lines.append(f"📱 {os.path.basename(result.tiktok_path)}")
         return FinishedRecordingViewModel(status_text="\n".join(lines))
 
-    def save_current_preferences(self, *, zoom, suavidad, fps, export_mode=None):
+    def save_current_preferences(self, *, zoom, suavidad, fps, export_mode=None, audio=None):
         updated_recording = with_recording_overrides(
             self.app_config.user_preferences.recording,
             zoom=ui_zoom_to_recording(zoom),
             suavidad=ui_suavidad_to_recording(suavidad),
             fps=fps,
+            audio=audio,
         )
         updated_ui = UISettings(
             export_mode=export_mode or self.app_config.user_preferences.ui.export_mode

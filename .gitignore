@@ -1,6 +1,8 @@
 venv/
 /venv
 .venv
+.claude/
+reco/
 .env
 __pycache__/
 *.py[cod]

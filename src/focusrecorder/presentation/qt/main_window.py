@@ -1,16 +1,24 @@
+import os
+import shutil
 import time
 from pathlib import Path
 
+import cv2
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -26,8 +34,12 @@ from ...config.constants import (
     UI_MIN_SUAVIDAD,
     UI_MIN_ZOOM,
 )
+from ...infrastructure.audio.sounddevice_audio import HAS_AUDIO
 from .recording_presenter import RecordingPresenter
 from .render_thread import RenderThread
+
+if HAS_AUDIO:
+    import sounddevice as sd
 
 
 class FocusApp(QWidget):
@@ -37,15 +49,20 @@ class FocusApp(QWidget):
         self.recording_start_time = None
         self.timer = QTimer()
         self.timer.timeout.connect(self._update_recording_time)
+        self.preview_timer = QTimer()
+        self.preview_timer.setInterval(50)
+        self.preview_timer.timeout.connect(self._update_preview)
+        self._disk_tick = 0
         self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("FocusSee Control Panel")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
-        self.setMinimumWidth(340)
-        self.setMaximumWidth(340)
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(360)
 
-        layout = QVBoxLayout()
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
@@ -88,6 +105,28 @@ class FocusApp(QWidget):
         self.change_dir_btn.clicked.connect(self._change_output_directory)
         dir_container.addWidget(self.change_dir_btn)
         layout.addLayout(dir_container)
+
+        name_label = QLabel("📝 Nombre del video (opcional)")
+        name_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 5px;")
+        layout.addWidget(name_label)
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Ej: demo_bot  (vacío = auto)")
+        self.name_input.setStyleSheet(
+            """
+            QLineEdit {
+                padding: 8px;
+                font-size: 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
+            }
+            QLineEdit:disabled {
+                background: #f5f5f5;
+                color: #999;
+            }
+            """
+        )
+        layout.addWidget(self.name_input)
 
         export_label = QLabel("🎬 Exportar como")
         export_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 5px;")
@@ -227,6 +266,61 @@ class FocusApp(QWidget):
         )
         layout.addWidget(self.fps_spin)
 
+        audio_label = QLabel("🎙️ Audio")
+        audio_label.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 5px;")
+        layout.addWidget(audio_label)
+
+        self.audio_checkbox = QCheckBox("Grabar micrófono")
+        self.audio_checkbox.setEnabled(HAS_AUDIO)
+        if not HAS_AUDIO:
+            self.audio_checkbox.setText("Grabar micrófono (instala sounddevice)")
+        self.audio_checkbox.setChecked(ui_state["audio"])
+        layout.addWidget(self.audio_checkbox)
+
+        self.audio_device_combo = QComboBox()
+        self.audio_device_combo.setVisible(False)
+        if HAS_AUDIO:
+            self.audio_device_combo.addItem("Dispositivo por defecto", None)
+            try:
+                for i, d in enumerate(sd.query_devices()):
+                    if d["max_input_channels"] > 0:
+                        self.audio_device_combo.addItem(d["name"], i)
+            except Exception:
+                pass
+        layout.addWidget(self.audio_device_combo)
+        self.audio_checkbox.toggled.connect(self.audio_device_combo.setVisible)
+        if ui_state["audio"]:
+            self.audio_device_combo.setVisible(True)
+
+        self.vu_meter = QProgressBar()
+        self.vu_meter.setRange(0, 100)
+        self.vu_meter.setValue(0)
+        self.vu_meter.setTextVisible(False)
+        self.vu_meter.setFixedHeight(10)
+        self.vu_meter.setVisible(False)
+        self.vu_meter.setStyleSheet(
+            """
+            QProgressBar { background: #222; border: 1px solid #444; border-radius: 4px; }
+            QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                stop:0 #28a745, stop:0.6 #ffc107, stop:0.85 #dc3545); border-radius: 3px; }
+            """
+        )
+        layout.addWidget(self.vu_meter)
+
+        self.disk_label = QLabel()
+        self.disk_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.disk_label.setStyleSheet("font-size: 11px; color: #888;")
+        layout.addWidget(self.disk_label)
+        self._update_disk_info()
+
+        self.preview_label = QLabel("Sin señal")
+        self.preview_label.setFixedHeight(180)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setStyleSheet(
+            "background: #111; color: #666; border: 1px solid #333; border-radius: 4px;"
+        )
+        layout.addWidget(self.preview_label)
+
         self.time_counter = QLabel("00:00:00")
         self.time_counter.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.time_counter.setStyleSheet(
@@ -268,7 +362,22 @@ class FocusApp(QWidget):
         self.btn.setStyleSheet(self._start_button_style())
         layout.addWidget(self.btn)
 
-        self.setLayout(layout)
+        scroll = QScrollArea()
+        scroll.setWidget(content_widget)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(scroll.Shape.NoFrame)
+
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        self.setLayout(outer)
+
+        screen = QApplication.primaryScreen()
+        if screen:
+            max_h = int(screen.availableGeometry().height() * 0.9)
+            self.setMaximumHeight(max_h)
+
         self.adjustSize()
         self._center_on_screen()
 
@@ -287,6 +396,9 @@ class FocusApp(QWidget):
             self.radio_tiktok,
             self.radio_both,
             self.change_dir_btn,
+            self.name_input,
+            self.audio_checkbox,
+            self.audio_device_combo,
         ):
             widget.setEnabled(enabled)
 
@@ -329,6 +441,9 @@ class FocusApp(QWidget):
                     zoom=self.zoom_spin.value(),
                     suavidad=self.smooth_slider.value(),
                     fps=self.fps_spin.value(),
+                    custom_name=self.name_input.text().strip(),
+                    audio=self.audio_checkbox.isChecked(),
+                    audio_device=self.audio_device_combo.currentData() if self.audio_checkbox.isChecked() else None,
                 )
             except RecordingEnvironmentError as exc:
                 self._set_controls_enabled(True)
@@ -343,6 +458,9 @@ class FocusApp(QWidget):
 
             self.recording_start_time = time.time()
             self.timer.start(100)
+            self.preview_timer.start()
+            if self.audio_checkbox.isChecked():
+                self.vu_meter.setVisible(True)
             self.time_counter.setVisible(True)
             self.time_counter.setText("00:00:00")
             self.btn.setText(view_model.button_text)
@@ -352,6 +470,9 @@ class FocusApp(QWidget):
             return
 
         self.timer.stop()
+        self.preview_timer.stop()
+        self.vu_meter.setVisible(False)
+        self.preview_label.setText("Procesando...")
         self.time_counter.setVisible(False)
         self.recording_start_time = None
         self.btn.setEnabled(False)
@@ -385,8 +506,65 @@ class FocusApp(QWidget):
         self.status.setStyleSheet(self._success_status_style())
 
         self.progress_bar.setVisible(False)
+        self.preview_label.setText("Sin señal")
+        self._update_disk_info()
         self._set_controls_enabled(True)
         self.presenter.reveal_output_directory()
+
+    def _update_preview(self):
+        recorder = self.presenter.recorder
+        if recorder is None:
+            return
+        mode = self._get_export_mode()
+        frame = recorder.preview_frame_tiktok if mode == "tiktok" else recorder.preview_frame
+        if frame is not None:
+            h, w, ch = frame.shape
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = QImage(frame_rgb.data, w, h, w * ch, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(img).scaled(
+                self.preview_label.width(),
+                self.preview_label.height(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            self.preview_label.setPixmap(pixmap)
+
+        if self.audio_checkbox.isChecked():
+            self.vu_meter.setValue(recorder.audio_level)
+
+        self._disk_tick += 1
+        if self._disk_tick >= 20:
+            self._disk_tick = 0
+            self._update_disk_info()
+
+    def _update_disk_info(self):
+        output_dir = self.presenter.get_output_dir_display()
+        drive = os.path.splitdrive(output_dir)[0] or "/"
+        try:
+            free_gb = shutil.disk_usage(drive).free / 1024 ** 3
+        except OSError:
+            free_gb = 0.0
+
+        temp_mb = 0.0
+        recorder = self.presenter.recorder
+        if recorder is not None and recorder._temp_path:
+            try:
+                temp_mb = os.path.getsize(recorder._temp_path) / 1024 ** 2
+            except OSError:
+                pass
+
+        if free_gb < 0.5:
+            color = "#dc3545"
+        elif free_gb < 2.0:
+            color = "#ffc107"
+        else:
+            color = "#888"
+
+        self.disk_label.setStyleSheet(f"font-size: 11px; color: {color};")
+        if temp_mb > 0:
+            self.disk_label.setText(f"💾 Temp: {temp_mb:.0f} MB  |  Libre: {free_gb:.1f} GB")
+        else:
+            self.disk_label.setText(f"💾 Disco libre: {free_gb:.1f} GB")
 
     @staticmethod
     def _start_button_style():
