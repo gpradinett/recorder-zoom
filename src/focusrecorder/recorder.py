@@ -1,8 +1,10 @@
 import threading
 import time
 import os
+import queue
 from pathlib import Path
 import cv2
+from pynput import keyboard
 from .config.config import coerce_recording_settings
 from .app.factories.capture_backend_factory import create_capture_backend
 from .app.factories.mouse_provider_factory import create_mouse_provider
@@ -13,7 +15,8 @@ from .domain.ports.mouse_provider import MouseProvider
 from .domain.models.recording_session import FrameSample, RecordingSessionState
 from .config.settings import RecordingSettings
 from .infrastructure.filesystem.file_naming import get_next_filename
-from .infrastructure.audio.sounddevice_audio import SounddeviceAudioRecorder, HAS_AUDIO
+from .infrastructure.audio.sounddevice_audio import BOTH_AUDIO_MODE, CombinedAudioRecorder, HAS_AUDIO, SounddeviceAudioRecorder
+from .infrastructure.capture.windows_cursor import WindowsCursorOverlay
 
 import platform
 IS_WINDOWS = platform.system() == "Windows"
@@ -38,11 +41,25 @@ class FocusRecorder:
 
         self._audio_recorder = None
         if self.settings.audio and HAS_AUDIO:
-            self._audio_recorder = SounddeviceAudioRecorder(device=self.settings.audio_device)
+            if self.settings.audio_mode == BOTH_AUDIO_MODE:
+                self._audio_recorder = CombinedAudioRecorder(system_device=self.settings.audio_device)
+            else:
+                self._audio_recorder = SounddeviceAudioRecorder(
+                    device=self.settings.audio_device,
+                    mode=self.settings.audio_mode,
+                )
 
         self._temp_writer = None
         self._temp_path = ""
+        self._writer_queue = None
+        self._writer_thread = None
+        self._writer_error = None
         self._injected_raw_data = []  # solo usado por tests
+        self._keyboard_listener = None
+        self._hotkeys_down = set()
+        self.on_pause_toggled = None
+        self.on_stop_requested = None
+        self._cursor_overlay = self._build_cursor_overlay()
 
     def _get_video_directory(self):
         """
@@ -63,6 +80,16 @@ class FocusRecorder:
 
     def _build_renderer(self):
         return create_renderer()
+
+    def _build_cursor_overlay(self):
+        if not self.is_windows:
+            return None
+        if type(self.capture_backend).__name__ != "MssCaptureBackend":
+            return None
+        try:
+            return WindowsCursorOverlay()
+        except Exception:
+            return None
 
     def _get_screen_size(self):
         return self.capture_backend.get_screen_size()
@@ -85,17 +112,12 @@ class FocusRecorder:
         self._validate_capture_backend()
         self.session.reset(time.perf_counter())
         self.mouse_provider.start_listener(self._on_click)
+        self._start_keyboard_listener()
         if self._audio_recorder is not None:
             self._audio_recorder.start()
 
-        self._temp_path = self.filename.replace(".mp4", "_temp_raw.avi")
-        fourcc = cv2.VideoWriter_fourcc(*"XVID")  # type: ignore[attr-defined]
-        self._temp_writer = cv2.VideoWriter(
-            self._temp_path, fourcc, self.settings.fps, (self.sw, self.sh)
-        )
-        if not self._temp_writer.isOpened():
-            self._temp_writer = None
-            self._temp_path = ""
+        self._temp_writer, self._temp_path = self._create_temp_writer()
+        self._start_async_writer()
 
         self.thread = threading.Thread(target=self._record_loop)
         self.thread.start()
@@ -103,6 +125,7 @@ class FocusRecorder:
     def stop(self, callback_progress=None, export_mode="full"):
         self.session.stop()
         self.mouse_provider.stop_listener()
+        self._stop_keyboard_listener()
         self.thread.join()
 
         audio_wav = None
@@ -126,24 +149,34 @@ class FocusRecorder:
         frame_interval = 1.0 / self.settings.fps
         self.capture_backend.start()
         try:
-            last_capture = time.perf_counter()
+            next_capture_at = time.perf_counter()
             while self.session.is_recording:
+                if self.session.is_paused:
+                    time.sleep(0.05)
+                    next_capture_at = time.perf_counter() + frame_interval
+                    continue
                 now = time.perf_counter()
-                elapsed = now - last_capture
-                if elapsed < frame_interval:
-                    time.sleep(max(frame_interval - elapsed - 0.001, 0.001))
+                remaining = next_capture_at - now
+                if remaining > 0:
+                    time.sleep(min(remaining, 0.005))
                     continue
 
                 frame = self.capture_backend.capture_frame()
                 if frame is None:
+                    next_capture_at = max(next_capture_at + frame_interval, time.perf_counter())
                     continue
-
-                last_capture = time.perf_counter()
                 mx, my = self._get_mouse_position()
-                ts = last_capture - self.session.start_time
+                if self._cursor_overlay is not None:
+                    try:
+                        frame = self._cursor_overlay.apply_to_frame(frame, mx, my, self.session.is_clicking)
+                    except Exception:
+                        self._cursor_overlay = None
+
+                capture_time = time.perf_counter()
+                ts = self.session.elapsed(capture_time)
 
                 if self._temp_writer is not None:
-                    self._temp_writer.write(frame)
+                    self._write_temp_frame(frame)
                 else:
                     # fallback RAM (tests o si XVID no está disponible)
                     self._injected_raw_data.append(
@@ -159,11 +192,12 @@ class FocusRecorder:
                         timestamp=ts,
                     )
                 )
+                next_capture_at += frame_interval
+                if capture_time - next_capture_at > frame_interval * 2:
+                    next_capture_at = capture_time + frame_interval
         finally:
             self.capture_backend.stop()
-            if self._temp_writer is not None:
-                self._temp_writer.release()
-                self._temp_writer = None
+            self._stop_async_writer()
 
     def _render_adaptive_video(self, callback_progress, export_mode):
         if self._injected_raw_data:
@@ -187,6 +221,85 @@ class FocusRecorder:
             )
             os.remove(self._temp_path)
             self._temp_path = ""
+
+    def _create_temp_writer(self):
+        codec_candidates = [
+            ("MJPG", ".avi"),
+            ("mp4v", ".mp4"),
+            ("XVID", ".avi"),
+            ("HFYU", ".avi"),
+        ]
+        for codec, extension in codec_candidates:
+            temp_path = self.filename.replace(".mp4", f"_temp_raw{extension}")
+            fourcc = cv2.VideoWriter_fourcc(*codec)  # type: ignore[attr-defined]
+            writer = cv2.VideoWriter(temp_path, fourcc, self.settings.fps, (self.sw, self.sh))
+            if writer.isOpened():
+                return writer, temp_path
+            writer.release()
+        return None, ""
+
+    def _start_async_writer(self):
+        if self._temp_writer is None:
+            return
+        self._writer_error = None
+        self._writer_queue = queue.Queue(maxsize=90)
+        self._writer_thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._writer_thread.start()
+
+    def _write_temp_frame(self, frame):
+        if self._temp_writer is None:
+            return
+        if self._writer_queue is None:
+            self._temp_writer.write(frame)
+            return
+        try:
+            self._writer_queue.put(frame, timeout=0.003)
+        except queue.Full:
+            try:
+                self._writer_queue.get_nowait()
+                self._writer_queue.task_done()
+            except queue.Empty:
+                pass
+            try:
+                self._writer_queue.put_nowait(frame)
+            except queue.Full:
+                pass
+
+    def _writer_loop(self):
+        while True:
+            try:
+                frame = self._writer_queue.get(timeout=0.1)  # type: ignore[union-attr]
+            except queue.Empty:
+                if not self.session.is_recording:
+                    break
+                continue
+
+            if frame is None:
+                self._writer_queue.task_done()  # type: ignore[union-attr]
+                break
+
+            try:
+                self._temp_writer.write(frame)
+            except Exception as exc:
+                self._writer_error = exc
+                self._writer_queue.task_done()  # type: ignore[union-attr]
+                break
+
+            self._writer_queue.task_done()  # type: ignore[union-attr]
+
+    def _stop_async_writer(self):
+        if self._writer_queue is not None:
+            try:
+                self._writer_queue.put(None, timeout=0.2)
+            except queue.Full:
+                pass
+        if self._writer_thread is not None:
+            self._writer_thread.join(timeout=2.0)
+            self._writer_thread = None
+        self._writer_queue = None
+        if self._temp_writer is not None:
+            self._temp_writer.release()
+            self._temp_writer = None
 
     def _zoomed_crop(self, tiktok: bool = False):
         import numpy as np
@@ -253,3 +366,62 @@ class FocusRecorder:
     @raw_data.setter
     def raw_data(self, value):
         self._injected_raw_data = value
+
+    @property
+    def is_paused(self):
+        return self.session.is_paused
+
+    def toggle_pause(self):
+        if not self.session.is_recording:
+            return False
+        if self.session.is_paused:
+            self.session.resume()
+            if self._audio_recorder is not None:
+                self._audio_recorder.resume()
+        else:
+            self.session.pause()
+            if self._audio_recorder is not None:
+                self._audio_recorder.pause()
+        paused = self.session.is_paused
+        if callable(self.on_pause_toggled):
+            self.on_pause_toggled(paused)
+        return paused
+
+    def request_stop(self):
+        if self.session.is_recording and callable(self.on_stop_requested):
+            self.on_stop_requested()
+
+    def get_elapsed_time(self):
+        return self.session.elapsed()
+
+    def _start_keyboard_listener(self):
+        try:
+            self._keyboard_listener = keyboard.Listener(
+                on_press=self._on_key_press,
+                on_release=self._on_key_release,
+            )
+            self._keyboard_listener.start()
+        except Exception:
+            self._keyboard_listener = None
+
+    def _stop_keyboard_listener(self):
+        if self._keyboard_listener is not None:
+            self._keyboard_listener.stop()
+            self._keyboard_listener = None
+        self._hotkeys_down.clear()
+
+    def _on_key_press(self, key):
+        if key in self._hotkeys_down:
+            return
+        self._hotkeys_down.add(key)
+        if key == self._resolve_hotkey(self.settings.pause_hotkey, keyboard.Key.f7):
+            self.toggle_pause()
+        elif key == self._resolve_hotkey(self.settings.stop_hotkey, keyboard.Key.f10):
+            self.request_stop()
+
+    def _on_key_release(self, key):
+        self._hotkeys_down.discard(key)
+
+    @staticmethod
+    def _resolve_hotkey(hotkey_name: str, fallback):
+        return getattr(keyboard.Key, (hotkey_name or "").lower(), fallback)

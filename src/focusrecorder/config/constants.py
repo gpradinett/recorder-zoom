@@ -1,7 +1,7 @@
 """Application constants for default configuration values."""
 
 # Recording defaults
-DEFAULT_ZOOM: float = 1.8
+DEFAULT_ZOOM: float = 1.0
 DEFAULT_SUAVIDAD: float = 0.05
 DEFAULT_FPS: int = 60
 

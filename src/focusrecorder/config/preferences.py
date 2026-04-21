@@ -91,6 +91,11 @@ def _get_default_preferences() -> dict[str, Any]:
         "export_mode": DEFAULT_EXPORT_MODE,
         "output_dir": str(Path.home() / "Desktop" / DEFAULT_OUTPUT_FOLDER_NAME),
         "audio": DEFAULT_AUDIO,
+        "audio_mode": "mic",
+        "preview_enabled": True,
+        "pause_hotkey": "f7",
+        "stop_hotkey": "f10",
+        "quality": "high",
     }
 
 
@@ -122,5 +127,22 @@ def _merge_with_defaults(user_data: dict[str, Any]) -> dict[str, Any]:
 
     if isinstance(user_data.get("audio"), bool):
         merged["audio"] = user_data["audio"]
+
+    if isinstance(user_data.get("audio_mode"), str):
+        if user_data["audio_mode"] in ("mic", "system", "both"):
+            merged["audio_mode"] = user_data["audio_mode"]
+
+    if isinstance(user_data.get("preview_enabled"), bool):
+        merged["preview_enabled"] = user_data["preview_enabled"]
+
+    if isinstance(user_data.get("pause_hotkey"), str):
+        merged["pause_hotkey"] = user_data["pause_hotkey"].lower()
+
+    if isinstance(user_data.get("stop_hotkey"), str):
+        merged["stop_hotkey"] = user_data["stop_hotkey"].lower()
+
+    if isinstance(user_data.get("quality"), str):
+        if user_data["quality"] in ("low", "medium", "high", "very_high"):
+            merged["quality"] = user_data["quality"]
 
     return merged

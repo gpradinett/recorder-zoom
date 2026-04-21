@@ -1,19 +1,9 @@
-import os
-import sys
-
-from PyQt6.QtWidgets import QApplication
-
-from .presentation.qt.main_window import FocusApp
-from .presentation.qt.render_thread import RenderThread
-
-os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+from .presentation.ctk.studio_window import FocusApp
 
 
 def run():
-    app = QApplication(sys.argv)
-    ex = FocusApp()
-    ex.show()
-    sys.exit(app.exec())
+    app = FocusApp()
+    app.mainloop()
 
 
 if __name__ == "__main__":  # pragma: no cover

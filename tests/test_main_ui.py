@@ -77,3 +77,16 @@ def test_on_finished_shows_filenames_and_resets_controls(qtbot):
     assert app.zoom_spin.isEnabled()
     assert app.smooth_slider.isEnabled()
     assert app.fps_spin.isEnabled()
+
+
+def test_hotkey_pause_changes_status(qtbot):
+    app = FocusApp()
+    qtbot.addWidget(app)
+
+    app._handle_hotkey_pause_changed(True)
+    assert "pausa" in app.status.text().lower()
+    assert app.header_badge.text() == "PAUSADO"
+
+    app._handle_hotkey_pause_changed(False)
+    assert "grabando" in app.status.text().lower()
+    assert app.header_badge.text() == "REC EN CURSO"
