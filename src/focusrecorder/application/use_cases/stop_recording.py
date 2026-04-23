@@ -1,6 +1,12 @@
-from ...recorder import FocusRecorder
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..dto import StopRecordingResult
 from ..recording_service import RecordingService
+
+if TYPE_CHECKING:
+    from ...recorder import FocusRecorder
 
 
 class StopRecordingUseCase:
@@ -19,4 +25,3 @@ class StopRecordingUseCase:
             callback_progress=callback_progress,
             export_mode=export_mode,
         )
-

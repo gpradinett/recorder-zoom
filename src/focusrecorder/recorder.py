@@ -4,7 +4,6 @@ import os
 import queue
 from pathlib import Path
 import cv2
-from pynput import keyboard
 from .config.config import coerce_recording_settings
 from .app.factories.capture_backend_factory import create_capture_backend
 from .app.factories.mouse_provider_factory import create_mouse_provider
@@ -56,6 +55,7 @@ class FocusRecorder:
         self._writer_error = None
         self._injected_raw_data = []  # solo usado por tests
         self._keyboard_listener = None
+        self._keyboard_module = None
         self._hotkeys_down = set()
         self.on_pause_toggled = None
         self.on_stop_requested = None
@@ -400,13 +400,18 @@ class FocusRecorder:
 
     def _start_keyboard_listener(self):
         try:
-            self._keyboard_listener = keyboard.Listener(
+            if self._keyboard_module is None:
+                from pynput import keyboard as pynput_keyboard
+
+                self._keyboard_module = pynput_keyboard
+            self._keyboard_listener = self._keyboard_module.Listener(
                 on_press=self._on_key_press,
                 on_release=self._on_key_release,
             )
             self._keyboard_listener.start()
         except Exception:
             self._keyboard_listener = None
+            self._keyboard_module = None
 
     def _stop_keyboard_listener(self):
         if self._keyboard_listener is not None:
@@ -415,12 +420,15 @@ class FocusRecorder:
         self._hotkeys_down.clear()
 
     def _on_key_press(self, key):
+        keyboard_module = self._keyboard_module
+        if keyboard_module is None:
+            return
         if key in self._hotkeys_down:
             return
         self._hotkeys_down.add(key)
-        if key == self._resolve_hotkey(self.settings.pause_hotkey, keyboard.Key.f7):
+        if key == self._resolve_hotkey(self.settings.pause_hotkey, keyboard_module.Key.f7):
             self.toggle_pause()
-        elif key == self._resolve_hotkey(self.settings.stop_hotkey, keyboard.Key.f10):
+        elif key == self._resolve_hotkey(self.settings.stop_hotkey, keyboard_module.Key.f10):
             self.request_stop()
 
     def _on_key_release(self, key):
@@ -428,4 +436,5 @@ class FocusRecorder:
 
     @staticmethod
     def _resolve_hotkey(hotkey_name: str, fallback):
-        return getattr(keyboard.Key, (hotkey_name or "").lower(), fallback)
+        key_type = fallback.__class__
+        return getattr(key_type, (hotkey_name or "").lower(), fallback)

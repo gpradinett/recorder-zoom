@@ -1,6 +1,10 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-from ..recorder import FocusRecorder
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..recorder import FocusRecorder
 
 
 @dataclass(frozen=True)

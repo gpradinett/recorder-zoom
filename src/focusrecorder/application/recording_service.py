@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..config.settings import RecordingSettings
-from ..recorder import FocusRecorder
 from .dto import StartRecordingResult, StopRecordingResult
+
+if TYPE_CHECKING:
+    from ..recorder import FocusRecorder
 
 
 class RecordingService:
