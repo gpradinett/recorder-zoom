@@ -12,7 +12,7 @@ El proyecto evolucionó desde una interfaz anterior más básica hacia una exper
 - controles más claros dentro de la ventana
 - mejoras progresivas en captura, render, audio y persistencia
 
-La aplicación actual arranca con una interfaz `CustomTkinter` y mantiene un motor de captura/render propio sobre `mss`, `OpenCV` y `FFmpeg`.
+La aplicación actual arranca con una interfaz `PyQt6` y mantiene un motor de captura/render propio sobre `mss`, `OpenCV` y `FFmpeg`.
 
 ## Cambios principales realizados
 
@@ -22,7 +22,7 @@ Se rehizo la interfaz principal para que se sienta más actual, limpia y orienta
 
 Cambios aplicados:
 
-- migración de la ventana principal a `CustomTkinter`
+- consolidación de la ventana principal en `PyQt6`
 - panel visual tipo studio con mejor jerarquía
 - bloques separados para destino, formato, preview, audio, estado y acciones
 - botones funcionales para:
@@ -43,7 +43,7 @@ Cambios aplicados:
 Archivos clave:
 
 - [src/focusrecorder/main.py](recorder-zoom-v2.0-main/src/focusrecorder/main.py)
-- [src/focusrecorder/presentation/ctk/studio_window.py](recorder-zoom-v2.0-main/src/focusrecorder/presentation/ctk/studio_window.py)
+- [src/focusrecorder/presentation/qt/studio_window.py](recorder-zoom-v2.0-main/src/focusrecorder/presentation/qt/studio_window.py)
 
 ### 2. Persistencia de configuración
 
@@ -280,7 +280,7 @@ Todavía pueden aparecer limitaciones en estos casos:
 
 - [src/focusrecorder/main.py](recorder-zoom-v2.0-main/src/focusrecorder/main.py)
 - [src/focusrecorder/recorder.py](recorder-zoom-v2.0-main/src/focusrecorder/recorder.py)
-- [src/focusrecorder/presentation/ctk/studio_window.py](recorder-zoom-v2.0-main/src/focusrecorder/presentation/ctk/studio_window.py)
+- [src/focusrecorder/presentation/qt/studio_window.py](recorder-zoom-v2.0-main/src/focusrecorder/presentation/qt/studio_window.py)
 - [src/focusrecorder/presentation/qt/recording_presenter.py](recorder-zoom-v2.0-main/src/focusrecorder/presentation/qt/recording_presenter.py)
 - [src/focusrecorder/infrastructure/rendering/adaptive_renderer.py](recorder-zoom-v2.0-main/src/focusrecorder/infrastructure/rendering/adaptive_renderer.py)
 - [src/focusrecorder/infrastructure/encoding/h264_encoder.py](recorder-zoom-v2.0-main/src/focusrecorder/infrastructure/encoding/h264_encoder.py)

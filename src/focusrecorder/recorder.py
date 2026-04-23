@@ -266,26 +266,30 @@ class FocusRecorder:
                 pass
 
     def _writer_loop(self):
+        writer_queue = self._writer_queue
+        if writer_queue is None:
+            return
+
         while True:
             try:
-                frame = self._writer_queue.get(timeout=0.1)  # type: ignore[union-attr]
+                frame = writer_queue.get(timeout=0.1)
             except queue.Empty:
                 if not self.session.is_recording:
                     break
                 continue
 
             if frame is None:
-                self._writer_queue.task_done()  # type: ignore[union-attr]
+                writer_queue.task_done()
                 break
 
             try:
                 self._temp_writer.write(frame)
             except Exception as exc:
                 self._writer_error = exc
-                self._writer_queue.task_done()  # type: ignore[union-attr]
+                writer_queue.task_done()
                 break
 
-            self._writer_queue.task_done()  # type: ignore[union-attr]
+            writer_queue.task_done()
 
     def _stop_async_writer(self):
         if self._writer_queue is not None:
