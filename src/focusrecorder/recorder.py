@@ -30,7 +30,8 @@ class FocusRecorder:
         self.mouse_provider = self._build_mouse_provider()
         self.renderer = self._build_renderer()
         self.session = RecordingSessionState()
-        self.sw, self.sh = self._get_screen_size()
+        self.sw = None
+        self.sh = None
 
         self.output_dir = self._get_video_directory()
         os.makedirs(self.output_dir, exist_ok=True)
@@ -94,6 +95,25 @@ class FocusRecorder:
     def _get_screen_size(self):
         return self.capture_backend.get_screen_size()
 
+    def _fallback_screen_size(self):
+        return 1920, 1080
+
+    def _ensure_screen_size(self):
+        if self.sw is None or self.sh is None:
+            try:
+                screen_size = self._get_screen_size()
+                if (
+                    isinstance(screen_size, (tuple, list))
+                    and len(screen_size) == 2
+                    and all(isinstance(value, (int, float)) for value in screen_size)
+                ):
+                    self.sw, self.sh = int(screen_size[0]), int(screen_size[1])
+                else:
+                    self.sw, self.sh = self._fallback_screen_size()
+            except Exception:
+                self.sw, self.sh = self._fallback_screen_size()
+        return self.sw, self.sh
+
     def _get_mouse_position(self):
         return self.mouse_provider.get_position()
 
@@ -110,6 +130,7 @@ class FocusRecorder:
 
     def start(self):
         self._validate_capture_backend()
+        self._ensure_screen_size()
         self.session.reset(time.perf_counter())
         self.mouse_provider.start_listener(self._on_click)
         self._start_keyboard_listener()
@@ -201,20 +222,25 @@ class FocusRecorder:
 
     def _render_adaptive_video(self, callback_progress, export_mode):
         if self._injected_raw_data:
+            if self.sw is None or self.sh is None:
+                first_frame = self._injected_raw_data[0][0]
+                self.sh, self.sw = first_frame.shape[:2]
+            screen_width, screen_height = self._ensure_screen_size()
             self.renderer.render(
                 raw_data=self._injected_raw_data,
                 settings=self.settings,
-                screen_size=(self.sw, self.sh),
+                screen_size=(screen_width, screen_height),
                 output_filename=self.filename,
                 callback_progress=callback_progress,
                 export_mode=export_mode,
             )
         elif self._temp_path and os.path.exists(self._temp_path):
+            screen_width, screen_height = self._ensure_screen_size()
             self.renderer.render_from_file(
                 temp_path=self._temp_path,
                 mouse_data=self.session.mouse_data,
                 settings=self.settings,
-                screen_size=(self.sw, self.sh),
+                screen_size=(screen_width, screen_height),
                 output_filename=self.filename,
                 callback_progress=callback_progress,
                 export_mode=export_mode,
@@ -223,6 +249,7 @@ class FocusRecorder:
             self._temp_path = ""
 
     def _create_temp_writer(self):
+        screen_width, screen_height = self._ensure_screen_size()
         codec_candidates = [
             ("MJPG", ".avi"),
             ("mp4v", ".mp4"),
@@ -232,7 +259,7 @@ class FocusRecorder:
         for codec, extension in codec_candidates:
             temp_path = self.filename.replace(".mp4", f"_temp_raw{extension}")
             fourcc = cv2.VideoWriter_fourcc(*codec)  # type: ignore[attr-defined]
-            writer = cv2.VideoWriter(temp_path, fourcc, self.settings.fps, (self.sw, self.sh))
+            writer = cv2.VideoWriter(temp_path, fourcc, self.settings.fps, (screen_width, screen_height))
             if writer.isOpened():
                 return writer, temp_path
             writer.release()

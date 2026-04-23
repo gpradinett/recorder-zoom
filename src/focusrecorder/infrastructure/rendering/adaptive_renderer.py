@@ -96,11 +96,47 @@ class FFmpegVideoWriter:
 
 class AdaptiveVideoRenderer:
     @staticmethod
+    def _can_encode_with_ffmpeg(encoder, width, height, fps, quality):
+        try:
+            return can_encode_with_ffmpeg(encoder, width, height, fps, quality)
+        except TypeError:
+            return can_encode_with_ffmpeg(encoder, width, height, fps)
+
+    @staticmethod
+    def _build_ffmpeg_writer(filename, fps, frame_size, encoder, quality):
+        try:
+            return FFmpegVideoWriter(filename, fps, frame_size, encoder, quality)
+        except TypeError:
+            return FFmpegVideoWriter(filename, fps, frame_size, encoder)
+
+    @classmethod
+    def _create_compatible_writer(cls, filename, fps, frame_size, quality):
+        try:
+            return cls._create_writer(filename, fps, frame_size, quality)
+        except TypeError:
+            return cls._create_writer(filename, fps, frame_size)
+
+    @staticmethod
+    def _reencode_compatible(path, quality):
+        try:
+            reencode_to_h264(path, quality)
+        except TypeError:
+            reencode_to_h264(path)
+
+    @staticmethod
     def _interpolate_mouse(samples, data_ptr, current_time):
-        mx, my, clicking, ts = samples[data_ptr]
+        sample = samples[data_ptr]
+        if len(sample) >= 5:
+            _frame, mx, my, clicking, ts = sample
+        else:
+            mx, my, clicking, ts = sample
         if data_ptr >= len(samples) - 1:
             return float(mx), float(my), clicking
-        next_mx, next_my, _next_clicking, next_ts = samples[data_ptr + 1]
+        next_sample = samples[data_ptr + 1]
+        if len(next_sample) >= 5:
+            _next_frame, next_mx, next_my, _next_clicking, next_ts = next_sample
+        else:
+            next_mx, next_my, _next_clicking, next_ts = next_sample
         span = max(next_ts - ts, 0.0)
         if span <= 1e-6:
             return float(mx), float(my), clicking
@@ -133,13 +169,13 @@ class AdaptiveVideoRenderer:
         return cv2.addWeighted(frame, 1.18, blurred, -0.18, 0)
 
     @staticmethod
-    def _create_writer(filename, fps, frame_size, quality):
+    def _create_writer(filename, fps, frame_size, quality="balanced"):
         width, height = frame_size
         for encoder in get_candidate_video_encoders():
             try:
-                if not can_encode_with_ffmpeg(encoder, width, height, fps, quality):
+                if not AdaptiveVideoRenderer._can_encode_with_ffmpeg(encoder, width, height, fps, quality):
                     continue
-                return FFmpegVideoWriter(filename, fps, frame_size, encoder, quality)
+                return AdaptiveVideoRenderer._build_ffmpeg_writer(filename, fps, frame_size, encoder, quality)
             except Exception:
                 continue
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
@@ -168,7 +204,7 @@ class AdaptiveVideoRenderer:
 
         out_full = None
         if do_full:
-            out_full = self._create_writer(output_filename, target_fps, (sw, sh), settings.quality)
+            out_full = self._create_compatible_writer(output_filename, target_fps, (sw, sh), settings.quality)
 
         out_tiktok = None
         tiktok_w = tiktok_h = 0
@@ -179,7 +215,7 @@ class AdaptiveVideoRenderer:
             if tiktok_w % 2 != 0:  # pragma: no cover
                 tiktok_w += 1
             tiktok_path = output_filename.replace(".mp4", "_tiktok.mp4")
-            out_tiktok = self._create_writer(tiktok_path, target_fps, (tiktok_w, tiktok_h), settings.quality)
+            out_tiktok = self._create_compatible_writer(tiktok_path, target_fps, (tiktok_w, tiktok_h), settings.quality)
 
         cam_x = float(sw // 2)
         cam_y = float(sh // 2)
@@ -254,7 +290,7 @@ class AdaptiveVideoRenderer:
 
         if files_to_encode:
             for i, path in enumerate(files_to_encode):
-                reencode_to_h264(path, settings.quality)
+                self._reencode_compatible(path, settings.quality)
                 if callback_progress:
                     base = int(100 * render_weight)
                     pct = base + int((i + 1) / len(files_to_encode) * (100 - base))
@@ -295,7 +331,7 @@ class AdaptiveVideoRenderer:
 
         out_full = None
         if do_full:
-            out_full = self._create_writer(output_filename, target_fps, (sw, sh), settings.quality)
+            out_full = self._create_compatible_writer(output_filename, target_fps, (sw, sh), settings.quality)
 
         out_tiktok = None
         tiktok_w = tiktok_h = 0
@@ -306,7 +342,7 @@ class AdaptiveVideoRenderer:
             if tiktok_w % 2 != 0:  # pragma: no cover
                 tiktok_w += 1
             tiktok_path = output_filename.replace(".mp4", "_tiktok.mp4")
-            out_tiktok = self._create_writer(tiktok_path, target_fps, (tiktok_w, tiktok_h), settings.quality)
+            out_tiktok = self._create_compatible_writer(tiktok_path, target_fps, (tiktok_w, tiktok_h), settings.quality)
 
         cam_x = float(sw // 2)
         cam_y = float(sh // 2)
@@ -387,7 +423,7 @@ class AdaptiveVideoRenderer:
 
         if files_to_encode:
             for i, path in enumerate(files_to_encode):
-                reencode_to_h264(path, settings.quality)
+                self._reencode_compatible(path, settings.quality)
                 if callback_progress:
                     base = int(100 * render_weight)
                     callback_progress(base + int((i + 1) / len(files_to_encode) * (100 - base)))
