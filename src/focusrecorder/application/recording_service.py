@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 class RecordingService:
     def start_recording(self, settings: RecordingSettings) -> StartRecordingResult:
+        from ..recorder import FocusRecorder
+
         recorder = FocusRecorder(config=settings)
         recorder.start()
         return StartRecordingResult(recorder=recorder, filename=recorder.filename)
