@@ -8,7 +8,9 @@ from ...config.config import (
     with_recording_overrides,
 )
 from ...config.settings import UISettings, UserPreferences
-from ...application.dto import StopRecordingResult
+from ...application.dto import RecordingArtifact, StopRecordingResult
+from ...application.use_cases.prepare_recording import PrepareRecordingUseCase
+from ...application.use_cases.render_recording import RenderRecordingUseCase
 from ...application.use_cases.start_recording import StartRecordingUseCase
 from ...application.use_cases.stop_recording import StopRecordingUseCase
 from ...infrastructure.system.shell_paths import reveal_file, reveal_folder
@@ -49,11 +51,22 @@ class FinishedRecordingViewModel:
 
 
 class RecordingPresenter:
-    def __init__(self, app_config=None, start_recording_use_case=None, stop_recording_use_case=None):
+    def __init__(
+        self,
+        app_config=None,
+        start_recording_use_case=None,
+        stop_recording_use_case=None,
+        prepare_recording_use_case=None,
+        render_recording_use_case=None,
+    ):
         self.app_config = app_config or get_app_config()
         self.start_recording_use_case = start_recording_use_case or StartRecordingUseCase()
         self.stop_recording_use_case = stop_recording_use_case or StopRecordingUseCase()
+        self.prepare_recording_use_case = prepare_recording_use_case or PrepareRecordingUseCase()
+        self.render_recording_use_case = render_recording_use_case or RenderRecordingUseCase()
         self.recorder = None
+        self._prepared_recorder = None
+        self._prepared_artifact = None
         self.last_result = StopRecordingResult("", "")
 
     @property
@@ -76,13 +89,14 @@ class RecordingPresenter:
             "pause_hotkey": recording.pause_hotkey,
             "stop_hotkey": recording.stop_hotkey,
             "quality": recording.quality,
+            "render_quality": recording.render_quality,
         }
 
     def has_active_recording(self):
         return self.recorder is not None and self.recorder.is_recording
 
-    def start_recording(self, *, zoom, suavidad, fps, custom_name="", audio=False, audio_mode="mic", audio_device=None, pause_hotkey="f7", stop_hotkey="f10", quality="high"):
-        self.save_current_preferences(zoom=zoom, suavidad=suavidad, fps=fps, audio=audio, audio_mode=audio_mode, pause_hotkey=pause_hotkey, stop_hotkey=stop_hotkey, quality=quality)
+    def start_recording(self, *, zoom, suavidad, fps, custom_name="", audio=False, audio_mode="mic", audio_device=None, pause_hotkey="f7", stop_hotkey="f10", quality="high", render_quality="normal"):
+        self.save_current_preferences(zoom=zoom, suavidad=suavidad, fps=fps, audio=audio, audio_mode=audio_mode, pause_hotkey=pause_hotkey, stop_hotkey=stop_hotkey, quality=quality, render_quality=render_quality)
         settings = replace(
             self.app_config.user_preferences.recording,
             custom_name=custom_name,
@@ -91,6 +105,7 @@ class RecordingPresenter:
             pause_hotkey=pause_hotkey,
             stop_hotkey=stop_hotkey,
             quality=quality,
+            render_quality=render_quality,
         )
         result = self.start_recording_use_case.execute(settings)
         self.recorder = result.recorder
@@ -117,6 +132,30 @@ class RecordingPresenter:
         self.recorder = None
         return result
 
+    def prepare_stop_recording(self) -> RecordingArtifact:
+        if self.recorder is None:
+            raise RuntimeError("No active recording to stop")
+        recorder = self.recorder
+        artifact = self.prepare_recording_use_case.execute(recorder)
+        self.recorder = None
+        self._prepared_recorder = recorder
+        self._prepared_artifact = artifact
+        return artifact
+
+    def render_prepared_recording(self, export_mode, callback_progress=None):
+        if self._prepared_recorder is None or self._prepared_artifact is None:
+            raise RuntimeError("No prepared recording to render")
+        try:
+            return self.render_recording_use_case.execute(
+                self._prepared_recorder,
+                self._prepared_artifact,
+                callback_progress=callback_progress,
+                export_mode=export_mode,
+            )
+        finally:
+            self._prepared_recorder = None
+            self._prepared_artifact = None
+
     def build_finished_view_model(self, result: StopRecordingResult):
         self.last_result = result
         lines = ["✅ Guardado:"]
@@ -131,7 +170,7 @@ class RecordingPresenter:
             tiktok_path=result.tiktok_path,
         )
 
-    def save_current_preferences(self, *, zoom, suavidad, fps, export_mode=None, audio=None, audio_mode=None, preview_enabled=None, pause_hotkey=None, stop_hotkey=None, quality=None):
+    def save_current_preferences(self, *, zoom, suavidad, fps, export_mode=None, audio=None, audio_mode=None, preview_enabled=None, pause_hotkey=None, stop_hotkey=None, quality=None, render_quality=None):
         updated_recording = with_recording_overrides(
             self.app_config.user_preferences.recording,
             zoom=ui_zoom_to_recording(zoom),
@@ -142,6 +181,7 @@ class RecordingPresenter:
             pause_hotkey=pause_hotkey,
             stop_hotkey=stop_hotkey,
             quality=quality,
+            render_quality=render_quality,
         )
         updated_ui = UISettings(
             export_mode=export_mode or self.app_config.user_preferences.ui.export_mode,

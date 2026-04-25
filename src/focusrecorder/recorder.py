@@ -9,6 +9,7 @@ from .app.factories.capture_backend_factory import create_capture_backend
 from .app.factories.mouse_provider_factory import create_mouse_provider
 from .app.factories.renderer_factory import create_renderer
 from .application.errors import RecordingEnvironmentError
+from .application.dto import RecordingArtifact
 from .domain.ports.capture_backend import CaptureBackend
 from .domain.ports.mouse_provider import MouseProvider
 from .domain.models.recording_session import FrameSample, RecordingSessionState
@@ -143,8 +144,8 @@ class FocusRecorder:
         self.thread = threading.Thread(target=self._record_loop)
         self.thread.start()
 
-    def stop(self, callback_progress=None, export_mode="full"):
-        self.session.stop()
+    def stop_capture(self) -> RecordingArtifact:
+        self.session.stop(time.perf_counter())
         self.mouse_provider.stop_listener()
         self._stop_keyboard_listener()
         self.thread.join()
@@ -154,22 +155,49 @@ class FocusRecorder:
             wav_path = self.filename.replace(".mp4", "_audio.wav")
             audio_wav = self._audio_recorder.stop(wav_path)
 
-        self._render_adaptive_video(callback_progress, export_mode)
+        screen_width, screen_height = self._ensure_screen_size()
+        artifact = RecordingArtifact(
+            filename=self.filename,
+            settings=self.settings,
+            screen_size=(screen_width, screen_height),
+            raw_data=tuple(self._injected_raw_data),
+            mouse_data=tuple(self.session.mouse_data),
+            temp_path=self._temp_path,
+            audio_wav=audio_wav,
+        )
+        self._injected_raw_data = []
+        self._temp_path = ""
+        return artifact
 
-        if audio_wav and os.path.exists(audio_wav):
+    def render_recording(self, artifact: RecordingArtifact, callback_progress=None, export_mode="full"):
+        self._render_adaptive_video(
+            artifact,
+            callback_progress=callback_progress,
+            export_mode=export_mode,
+        )
+
+        if artifact.audio_wav and os.path.exists(artifact.audio_wav):
             from .infrastructure.encoding.h264_encoder import add_audio_to_video
             if export_mode in ("full", "both"):
-                add_audio_to_video(self.filename, audio_wav)
+                add_audio_to_video(artifact.filename, artifact.audio_wav)
             if export_mode in ("tiktok", "both"):
-                tiktok_path = self.filename.replace(".mp4", "_tiktok.mp4")
+                tiktok_path = artifact.filename.replace(".mp4", "_tiktok.mp4")
                 if os.path.exists(tiktok_path):
-                    add_audio_to_video(tiktok_path, audio_wav)
-            os.remove(audio_wav)
+                    add_audio_to_video(tiktok_path, artifact.audio_wav)
+            os.remove(artifact.audio_wav)
+
+    def stop(self, callback_progress=None, export_mode="full"):
+        artifact = self.stop_capture()
+        self.render_recording(
+            artifact,
+            callback_progress=callback_progress,
+            export_mode=export_mode,
+        )
 
     def _record_loop(self):
         frame_interval = 1.0 / self.settings.fps
-        self.capture_backend.start()
         try:
+            self.capture_backend.start()
             next_capture_at = time.perf_counter()
             while self.session.is_recording:
                 if self.session.is_paused:
@@ -220,33 +248,30 @@ class FocusRecorder:
             self.capture_backend.stop()
             self._stop_async_writer()
 
-    def _render_adaptive_video(self, callback_progress, export_mode):
-        if self._injected_raw_data:
+    def _render_adaptive_video(self, artifact: RecordingArtifact, callback_progress, export_mode):
+        if artifact.raw_data:
             if self.sw is None or self.sh is None:
-                first_frame = self._injected_raw_data[0][0]
+                first_frame = artifact.raw_data[0][0]
                 self.sh, self.sw = first_frame.shape[:2]
-            screen_width, screen_height = self._ensure_screen_size()
             self.renderer.render(
-                raw_data=self._injected_raw_data,
-                settings=self.settings,
-                screen_size=(screen_width, screen_height),
-                output_filename=self.filename,
+                raw_data=artifact.raw_data,
+                settings=artifact.settings,
+                screen_size=artifact.screen_size,
+                output_filename=artifact.filename,
                 callback_progress=callback_progress,
                 export_mode=export_mode,
             )
-        elif self._temp_path and os.path.exists(self._temp_path):
-            screen_width, screen_height = self._ensure_screen_size()
+        elif artifact.temp_path and os.path.exists(artifact.temp_path):
             self.renderer.render_from_file(
-                temp_path=self._temp_path,
-                mouse_data=self.session.mouse_data,
-                settings=self.settings,
-                screen_size=(screen_width, screen_height),
-                output_filename=self.filename,
+                temp_path=artifact.temp_path,
+                mouse_data=artifact.mouse_data,
+                settings=artifact.settings,
+                screen_size=artifact.screen_size,
+                output_filename=artifact.filename,
                 callback_progress=callback_progress,
                 export_mode=export_mode,
             )
-            os.remove(self._temp_path)
-            self._temp_path = ""
+            os.remove(artifact.temp_path)
 
     def _create_temp_writer(self):
         screen_width, screen_height = self._ensure_screen_size()

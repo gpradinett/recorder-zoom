@@ -21,6 +21,7 @@ class RecordingSessionState:
     is_paused: bool = False
     is_clicking: bool = False
     start_time: float = 0.0
+    stop_time: float = 0.0
     pause_started_at: float = 0.0
     total_paused_time: float = 0.0
     mouse_data: list = field(default_factory=list)  # (mx, my, clicking, ts) — sin frames
@@ -33,6 +34,7 @@ class RecordingSessionState:
         self.is_paused = False
         self.is_clicking = False
         self.start_time = start_time
+        self.stop_time = 0.0
         self.pause_started_at = 0.0
         self.total_paused_time = 0.0
         self.mouse_data = []
@@ -40,9 +42,10 @@ class RecordingSessionState:
         self.latest_mx = 0
         self.latest_my = 0
 
-    def stop(self) -> None:
+    def stop(self, now: float | None = None) -> None:
         self.is_recording = False
         self.is_paused = False
+        self.stop_time = now if now is not None else time.perf_counter()
 
     def pause(self, now: float | None = None) -> None:
         if self.is_recording and not self.is_paused:
@@ -58,6 +61,8 @@ class RecordingSessionState:
 
     def elapsed(self, now: float | None = None) -> float:
         current_time = now if now is not None else time.perf_counter()
+        if not self.is_recording and self.stop_time:
+            current_time = min(current_time, self.stop_time)
         paused_time = self.total_paused_time
         if self.is_paused and self.pause_started_at:
             paused_time += max(current_time - self.pause_started_at, 0.0)

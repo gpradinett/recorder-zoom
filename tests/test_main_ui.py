@@ -43,6 +43,7 @@ def test_toggle_start_updates_ui_and_config(monkeypatch, qtbot):
     app.zoom_spin.setValue(20)
     app.smooth_slider.setValue(5)
     app.fps_spin.setValue(30)
+    app.render_quality_combo.setCurrentIndex(app.render_quality_combo.findData("fast"))
 
     app.toggle()
 
@@ -52,6 +53,7 @@ def test_toggle_start_updates_ui_and_config(monkeypatch, qtbot):
     assert dummy_service.settings.zoom == pytest.approx(2.0)
     assert dummy_service.settings.suavidad == pytest.approx(0.05)
     assert dummy_service.settings.fps == 30
+    assert dummy_service.settings.render_quality == "fast"
 
     assert app.btn.text() == "DETENER Y PROCESAR"
     assert "Grabando" in app.status.text()

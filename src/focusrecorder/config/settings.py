@@ -16,6 +16,7 @@ class RecordingSettings:
     pause_hotkey: str = "f7"
     stop_hotkey: str = "f10"
     quality: str = "high"
+    render_quality: str = "normal"
 
 
 @dataclass(frozen=True)

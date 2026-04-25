@@ -96,6 +96,7 @@ def _get_default_preferences() -> dict[str, Any]:
         "pause_hotkey": "f7",
         "stop_hotkey": "f10",
         "quality": "high",
+        "render_quality": "normal",
     }
 
 
@@ -144,5 +145,9 @@ def _merge_with_defaults(user_data: dict[str, Any]) -> dict[str, Any]:
     if isinstance(user_data.get("quality"), str):
         if user_data["quality"] in ("low", "medium", "high", "very_high"):
             merged["quality"] = user_data["quality"]
+
+    if isinstance(user_data.get("render_quality"), str):
+        if user_data["render_quality"] in ("fast", "normal", "high"):
+            merged["render_quality"] = user_data["render_quality"]
 
     return merged

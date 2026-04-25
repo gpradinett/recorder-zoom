@@ -46,6 +46,7 @@ def load_user_preferences_as_settings() -> UserPreferences:
         pause_hotkey=prefs.get("pause_hotkey", "f7"),
         stop_hotkey=prefs.get("stop_hotkey", "f10"),
         quality=prefs.get("quality", "high"),
+        render_quality=prefs.get("render_quality", "normal"),
     )
     
     ui_settings = UISettings(
@@ -70,6 +71,7 @@ def save_user_preferences_from_settings(preferences: UserPreferences) -> None:
         "pause_hotkey": preferences.recording.pause_hotkey,
         "stop_hotkey": preferences.recording.stop_hotkey,
         "quality": preferences.recording.quality,
+        "render_quality": preferences.recording.render_quality,
     }
     save_user_preferences(prefs_dict)
 
@@ -91,6 +93,7 @@ def with_recording_overrides(
     pause_hotkey: str | None = None,
     stop_hotkey: str | None = None,
     quality: str | None = None,
+    render_quality: str | None = None,
 ) -> RecordingSettings:
     """Create a new RecordingSettings with overridden values."""
     updates = {}
@@ -110,6 +113,8 @@ def with_recording_overrides(
         updates["stop_hotkey"] = stop_hotkey
     if quality is not None:
         updates["quality"] = quality
+    if render_quality is not None:
+        updates["render_quality"] = render_quality
     return replace(settings, **updates)
 
 
@@ -145,6 +150,8 @@ def coerce_recording_settings(config) -> RecordingSettings:
             updates["custom_name"] = config["custom_name"]
         if "quality" in config:
             updates["quality"] = config["quality"]
+        if "render_quality" in config:
+            updates["render_quality"] = config["render_quality"]
         return replace(settings, **updates)
 
     raise TypeError("config must be None, a dict, or RecordingSettings")

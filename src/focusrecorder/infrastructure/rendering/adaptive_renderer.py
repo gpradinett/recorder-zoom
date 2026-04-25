@@ -164,9 +164,21 @@ class AdaptiveVideoRenderer:
         return current + step
 
     @staticmethod
-    def _enhance_frame(frame):
-        blurred = cv2.GaussianBlur(frame, (0, 0), 0.8)
-        return cv2.addWeighted(frame, 1.18, blurred, -0.18, 0)
+    def _resize_interpolation(quality: str):
+        if quality == "high":
+            return cv2.INTER_LANCZOS4
+        if quality == "normal":
+            return cv2.INTER_LINEAR
+        return cv2.INTER_AREA
+
+    @staticmethod
+    def _enhance_frame(frame, quality: str):
+        if quality != "high":
+            return frame
+        sigma = 0.8
+        weight = 1.18
+        blurred = cv2.GaussianBlur(frame, (0, 0), sigma)
+        return cv2.addWeighted(frame, weight, blurred, -(weight - 1.0), 0)
 
     @staticmethod
     def _create_writer(filename, fps, frame_size, quality="balanced"):
@@ -250,8 +262,12 @@ class AdaptiveVideoRenderer:
                 cropped = frame[y1:y1 + z_h, x1:x1 + z_w]
 
                 if cropped.size > 0:  # pragma: no cover
-                    final = cv2.resize(cropped, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
-                    final = self._enhance_frame(final)
+                    final = cv2.resize(
+                        cropped,
+                        (sw, sh),
+                        interpolation=self._resize_interpolation(settings.render_quality),
+                    )
+                    final = self._enhance_frame(final, settings.render_quality)
 
                     out_full.write(final)  # type: ignore[union-attr]
 
@@ -269,8 +285,12 @@ class AdaptiveVideoRenderer:
                 cropped_tt = frame[y1_tt:y1_tt + z_h_tt, x1_tt:x1_tt + z_w_tt]
 
                 if cropped_tt.size > 0 and tiktok_w > 0 and tiktok_h > 0:  # pragma: no cover
-                    final_tt = cv2.resize(cropped_tt, (tiktok_w, tiktok_h), interpolation=cv2.INTER_LANCZOS4)
-                    final_tt = self._enhance_frame(final_tt)
+                    final_tt = cv2.resize(
+                        cropped_tt,
+                        (tiktok_w, tiktok_h),
+                        interpolation=self._resize_interpolation(settings.render_quality),
+                    )
+                    final_tt = self._enhance_frame(final_tt, settings.render_quality)
                     out_tiktok.write(final_tt)  # type: ignore[union-attr]
 
             if callback_progress and f_idx % 10 == 0:
@@ -383,8 +403,12 @@ class AdaptiveVideoRenderer:
 
                 cropped = frame[y1:y1 + z_h, x1:x1 + z_w]
                 if cropped.size > 0:  # pragma: no cover
-                    final = cv2.resize(cropped, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
-                    final = self._enhance_frame(final)
+                    final = cv2.resize(
+                        cropped,
+                        (sw, sh),
+                        interpolation=self._resize_interpolation(settings.render_quality),
+                    )
+                    final = self._enhance_frame(final, settings.render_quality)
                     out_full.write(final)
 
             if do_tiktok and out_tiktok:
@@ -400,8 +424,12 @@ class AdaptiveVideoRenderer:
 
                 cropped_tt = frame[y1_tt:y1_tt + z_h_tt, x1_tt:x1_tt + z_w_tt]
                 if cropped_tt.size > 0 and tiktok_w > 0 and tiktok_h > 0:  # pragma: no cover
-                    final_tt = cv2.resize(cropped_tt, (tiktok_w, tiktok_h), interpolation=cv2.INTER_LANCZOS4)
-                    final_tt = self._enhance_frame(final_tt)
+                    final_tt = cv2.resize(
+                        cropped_tt,
+                        (tiktok_w, tiktok_h),
+                        interpolation=self._resize_interpolation(settings.render_quality),
+                    )
+                    final_tt = self._enhance_frame(final_tt, settings.render_quality)
                     out_tiktok.write(final_tt)
 
             if callback_progress and f_idx % 10 == 0:
